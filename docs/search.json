@@ -1,0 +1,114 @@
+[
+  {
+    "objectID": "index.html",
+    "href": "index.html",
+    "title": "Vinay Pandya",
+    "section": "",
+    "text": "Software Engineer with 3+ years of experience building scalable web applications and machine learning solutions. I specialize in end-to-end systems using Java, Python, and modern frameworks, with expertise in cloud deployment, data engineering, and ML implementation.\nMS Computer Science from San Jose State University. Based in San Francisco, CA.\n\nTech: Python, Java, TypeScript, PyTorch, AWS, Docker, Kubernetes, FastAPI, React\n\n\nFeatured Projects\nMlx-cluster — Python library for generating random graphs on Apple GPU using mlx-graphs and Metal kernels. 1.2x faster than PyTorch on macOS.\nMalware Detection via Opcode Sequences — Master’s thesis using BERT and XLNet to detect malware from disassembled opcodes, achieving 97% accuracy.\nView all projects →"
+  },
+  {
+    "objectID": "index.html#about-me",
+    "href": "index.html#about-me",
+    "title": "Vinay Pandya",
+    "section": "",
+    "text": "Software Engineer with 3+ years of experience building scalable web applications and machine learning solutions. I specialize in developing end-to-end systems using Java, Python, and modern web frameworks, with strong capabilities in cloud deployment, data engineering, and ML model implementation.\nI’m passionate about building systems that scale and solving complex problems at the intersection of software engineering and machine learning."
+  },
+  {
+    "objectID": "index.html#education",
+    "href": "index.html#education",
+    "title": "Vinay Pandya",
+    "section": "Education",
+    "text": "Education\nMaster of Science in Computer Science San Jose State University, San Jose, CA GPA: 3.6/4.0 | May 2022"
+  },
+  {
+    "objectID": "index.html#technical-skills",
+    "href": "index.html#technical-skills",
+    "title": "Vinay Pandya",
+    "section": "Technical Skills",
+    "text": "Technical Skills\n\n\nLanguages\n\nPython, Java, C++, Node.js, R, TypeScript\n\nDatabases\n\nMySQL, MongoDB, Athena, DynamoDB\n\nMachine Learning\n\nPyTorch, mlx-graphs, mlx\n\nMLOps\n\nWeights and Biases, Weave, Kubeflow\n\n\nCloud\n\nAWS, Azure\n\nDevOps/CI-CD\n\nDocker, Kubernetes, GitHub Actions, Jenkins, ArgoCD\n\nGPU Programming\n\nCUDA, Metal (iOS)\n\nFrameworks\n\nFlask, React, FastAPI, Streamlit, Spring Boot"
+  },
+  {
+    "objectID": "index.html#contact",
+    "href": "index.html#contact",
+    "title": "Vinay Pandya",
+    "section": "Contact",
+    "text": "Contact\nBased in San Francisco, CA. Feel free to reach out!\n\nEmail: vinayharshadpandya27@gmail.com\nPhone: (408) 963-9802"
+  },
+  {
+    "objectID": "blog.html",
+    "href": "blog.html",
+    "title": "Blog",
+    "section": "",
+    "text": "Welcome to my blog where I write about software engineering, machine learning, and technology.\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nWelcome to My Blog\n\n\n\nnews\n\n\n\nFirst post on my new Quarto blog\n\n\n\n\n\nFeb 16, 2025\n\n\nVinay Pandya\n\n\n\n\n\nNo matching items"
+  },
+  {
+    "objectID": "projects.html",
+    "href": "projects.html",
+    "title": "Projects",
+    "section": "",
+    "text": "A Python library for generating and calculating random graphs efficiently on Apple GPU using mlx-graphs and mlx.\n\nUtilized Metal kernels with Python for efficiently calculating random walks and biased random walks, achieving 1.2x performance compared to regular PyTorch kernels on macOS\nUsed Nanobind, Poetry, and Python Packaging Index (PyPI) for publishing the package\n\nTechnologies: Python, MLX, Metal, Nanobind, Poetry\nView on GitHub"
+  },
+  {
+    "objectID": "projects.html#mlx-cluster-open-source",
+    "href": "projects.html#mlx-cluster-open-source",
+    "title": "Projects",
+    "section": "",
+    "text": "A Python library for generating and calculating random graphs efficiently on Apple GPU using mlx-graphs and mlx.\n\nUtilized Metal kernels with Python for efficiently calculating random walks and biased random walks, achieving 1.2x performance compared to regular PyTorch kernels on macOS\nUsed Nanobind, Poetry, and Python Packaging Index (PyPI) for publishing the package\n\nTechnologies: Python, MLX, Metal, Nanobind, Poetry\nView on GitHub"
+  },
+  {
+    "objectID": "projects.html#malware-detection-from-opcode-sequences-masters-thesis",
+    "href": "projects.html#malware-detection-from-opcode-sequences-masters-thesis",
+    "title": "Projects",
+    "section": "Malware Detection from Opcode Sequences (Master’s Thesis)",
+    "text": "Malware Detection from Opcode Sequences (Master’s Thesis)\nCreated a malware detection algorithm that can detect malware by disassembling opcode sequences.\n\nUtilized BERT and XLNet architectures and various ensemble methods to improve accuracy from 95% to 97%\nNovel approach using NLP techniques for cybersecurity applications\n\nTechnologies: Python, PyTorch, BERT, XLNet, Transformers"
+  },
+  {
+    "objectID": "projects.html#identifying-illicit-transactions-in-elliptic-bitcoin-network",
+    "href": "projects.html#identifying-illicit-transactions-in-elliptic-bitcoin-network",
+    "title": "Projects",
+    "section": "Identifying Illicit Transactions in Elliptic Bitcoin Network",
+    "text": "Identifying Illicit Transactions in Elliptic Bitcoin Network\nApplied Graph Neural Networks to identify illicit nodes in blockchain transaction graphs.\n\nUtilized PyTorch and Torch Geometric GNN paradigms achieving an accuracy of 96%\nUsed Spectral graph theory, Graph Neural Networks, and Cosmograph for visualization\nImplemented GNN Explainer to create explanations for machine learning predictions\n\nTechnologies: PyTorch, Torch Geometric, Sklearn, Pandas, Matplotlib, GNN Explainer"
+  },
+  {
+    "objectID": "posts/welcome/index.html",
+    "href": "posts/welcome/index.html",
+    "title": "Welcome to My Blog",
+    "section": "",
+    "text": "Welcome to my blog! I’ll be sharing my thoughts on software engineering, machine learning, and technology here."
+  },
+  {
+    "objectID": "posts/welcome/index.html#what-to-expect",
+    "href": "posts/welcome/index.html#what-to-expect",
+    "title": "Welcome to My Blog",
+    "section": "What to Expect",
+    "text": "What to Expect\nI plan to write about:\n\nMachine Learning: Deep dives into ML concepts, especially Graph Neural Networks and NLP\nSoftware Engineering: Best practices, system design, and cloud architecture\nOpen Source: Updates on my open source projects like mlx-cluster\nCareer: Insights from working at companies like Amazon and Illumio\n\nStay tuned for more content!"
+  },
+  {
+    "objectID": "experience.html",
+    "href": "experience.html",
+    "title": "Professional Experience",
+    "section": "",
+    "text": "Illumio | Apr 2025 - Present\n\nCreated and deployed API gateway using Spring Boot to integrate multiple downstream services (15+)\nUsed Horizontal Pod Autoscaling and efficient connection management to keep the system highly available (100k requests per second)\n\nTechnologies: Java, Spring Boot, HPA, Kubernetes, Jenkins, ArgoCD, API Gateway, Azure, AWS"
+  },
+  {
+    "objectID": "experience.html#member-of-technical-staff",
+    "href": "experience.html#member-of-technical-staff",
+    "title": "Professional Experience",
+    "section": "",
+    "text": "Illumio | Apr 2025 - Present\n\nCreated and deployed API gateway using Spring Boot to integrate multiple downstream services (15+)\nUsed Horizontal Pod Autoscaling and efficient connection management to keep the system highly available (100k requests per second)\n\nTechnologies: Java, Spring Boot, HPA, Kubernetes, Jenkins, ArgoCD, API Gateway, Azure, AWS"
+  },
+  {
+    "objectID": "experience.html#software-development-engineer",
+    "href": "experience.html#software-development-engineer",
+    "title": "Professional Experience",
+    "section": "Software Development Engineer",
+    "text": "Software Development Engineer\nAmazon | Aug 2022 - Mar 2025\n\nDeployed ML pipelines with NLP and Transformers for Alexa on SageMaker, improving data transcription automation from 15% to 20%\nBuilt GDPR-compliant data pipelines using AWS Glue and SQL for Amazon’s A/B testing platforms\nEngineered scalable model serving infrastructure using AWS Step Functions, DynamoDB, and Lambda, processing 100K+ daily requests with 99.9% uptime\nBuilt SageMaker Studio extension integrating Hugging Face and Papers with Code, reducing dataset access time from 90 to 2 days through automated validation and caching\nImplemented RAG system using AWS Bedrock and vector databases for Amazon Payments onboarding, reducing onboarding time by 30%\n\nTechnologies: Python, AWS SageMaker, AWS Glue, Step Functions, DynamoDB, Lambda, Bedrock, Hugging Face"
+  },
+  {
+    "objectID": "experience.html#associate-software-engineer",
+    "href": "experience.html#associate-software-engineer",
+    "title": "Professional Experience",
+    "section": "Associate Software Engineer",
+    "text": "Associate Software Engineer\nAccenture Services Private Limited | Sep 2018 - Sep 2019\n\nBuilt incident management chatbot with Node.js and Firebase, integrating PagerDuty for automated escalation and reducing incident response times by 20%\nCreated monitoring dashboards using Splunk and AWS CloudWatch to track business KPIs, improving financial visibility by 10%\n\nTechnologies: Node.js, Firebase, PagerDuty, Splunk, AWS CloudWatch"
+  }
+]

@@ -1,0 +1,34 @@
+---
+title: "Professional Experience"
+---
+
+## Member of Technical Staff
+**Illumio** | Apr 2025 - Present
+
+- Created and deployed API gateway using Spring Boot to integrate multiple downstream services (15+)
+- Used Horizontal Pod Autoscaling and efficient connection management to keep the system highly available (100k requests per second)
+
+*Technologies: Java, Spring Boot, HPA, Kubernetes, Jenkins, ArgoCD, API Gateway, Azure, AWS*
+
+---
+
+## Software Development Engineer
+**Amazon** | Aug 2022 - Mar 2025
+
+- Deployed ML pipelines with NLP and Transformers for Alexa on SageMaker, improving data transcription automation from 15% to 20%
+- Built GDPR-compliant data pipelines using AWS Glue and SQL for Amazon's A/B testing platforms
+- Engineered scalable model serving infrastructure using AWS Step Functions, DynamoDB, and Lambda, processing 100K+ daily requests with 99.9% uptime
+- Built SageMaker Studio extension integrating Hugging Face and Papers with Code, reducing dataset access time from 90 to 2 days through automated validation and caching
+- Implemented RAG system using AWS Bedrock and vector databases for Amazon Payments onboarding, reducing onboarding time by 30%
+
+*Technologies: Python, AWS SageMaker, AWS Glue, Step Functions, DynamoDB, Lambda, Bedrock, Hugging Face*
+
+---
+
+## Associate Software Engineer
+**Accenture Services Private Limited** | Sep 2018 - Sep 2019
+
+- Built incident management chatbot with Node.js and Firebase, integrating PagerDuty for automated escalation and reducing incident response times by 20%
+- Created monitoring dashboards using Splunk and AWS CloudWatch to track business KPIs, improving financial visibility by 10%
+
+*Technologies: Node.js, Firebase, PagerDuty, Splunk, AWS CloudWatch*

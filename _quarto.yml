@@ -1,0 +1,34 @@
+project:
+  type: website
+  output-dir: docs
+
+website:
+  title: "Vinay Pandya"
+  navbar:
+    left:
+      - href: index.qmd
+        text: About
+      - href: experience.qmd
+        text: Experience
+      - href: projects.qmd
+        text: Projects
+      - href: blog.qmd
+        text: Blog
+    right:
+      - icon: github
+        href: https://github.com/vinaypandya
+      - icon: linkedin
+        href: https://linkedin.com/in/vinaypandya
+      - icon: envelope
+        href: mailto:vinayharshadpandya27@gmail.com
+
+  page-footer:
+    center: "© 2025 Vinay Pandya"
+
+format:
+  html:
+    theme:
+      light: cosmo
+      dark: darkly
+    css: styles.css
+    toc: true

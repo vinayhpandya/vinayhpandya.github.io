@@ -1,0 +1,42 @@
+---
+title: "Vinay Pandya"
+subtitle: "Software Engineer & ML Practitioner"
+image: profile.jpg
+toc: false
+about:
+  template: solana
+  image-shape: round
+  image-width: 12em
+  links:
+    - icon: linkedin
+      text: LinkedIn
+      href: https://www.linkedin.com/in/vinay-pandya-299aa8131/
+    - icon: github
+      text: GitHub
+      href: https://github.com/vinayhpandya
+    - icon: mortarboard
+      text: Google Scholar
+      href: https://scholar.google.com/citations?user=cYgr1tMAAAAJ&hl=en&authuser=1
+    - icon: envelope
+      text: Email
+      href: mailto:vinayharshadpandya27@gmail.com
+---
+
+Software Engineer with 3+ years of experience building scalable web applications and machine learning solutions. I specialize in end-to-end systems using Java, Python, and modern frameworks, with expertise in cloud deployment, data engineering, and ML implementation.
+
+**MS Computer Science** from San Jose State University. Based in San Francisco, CA.
+
+---
+
+**Tech:** Python, Java, TypeScript, PyTorch, AWS, Docker, Kubernetes, FastAPI, React
+
+---
+
+### Featured Projects
+
+**[Mlx-cluster](https://vinayhpandya.github.io/mlx_cluster/)** — Python library for generating random graphs on Apple GPU using mlx-graphs and Metal kernels. 1.2x faster than PyTorch on macOS.
+
+**[Malware Detection via Opcode Sequences](https://scholarworks.sjsu.edu/etd_projects/1083/)** — Master's thesis using BERT and XLNet to detect malware from disassembled opcodes, achieving 97% accuracy.
+
+
+[View all projects →](projects.qmd)

@@ -1,0 +1,37 @@
+---
+title: "Projects"
+---
+
+## Mlx-cluster (Open Source)
+
+A Python library for generating and calculating random graphs efficiently on Apple GPU using mlx-graphs and mlx.
+
+- Utilized Metal kernels with Python for efficiently calculating random walks and biased random walks, achieving **1.2x performance** compared to regular PyTorch kernels on macOS
+- Used Nanobind, Poetry, and Python Packaging Index (PyPI) for publishing the package
+
+*Technologies: Python, MLX, Metal, Nanobind, Poetry*
+
+[View on GitHub](https://github.com/vinaypandya){.btn .btn-outline-primary}
+
+---
+
+## Malware Detection from Opcode Sequences (Master's Thesis)
+
+Created a malware detection algorithm that can detect malware by disassembling opcode sequences.
+
+- Utilized **BERT and XLNet** architectures and various ensemble methods to improve accuracy from 95% to **97%**
+- Novel approach using NLP techniques for cybersecurity applications
+
+*Technologies: Python, PyTorch, BERT, XLNet, Transformers*
+
+---
+
+## Identifying Illicit Transactions in Elliptic Bitcoin Network
+
+Applied Graph Neural Networks to identify illicit nodes in blockchain transaction graphs.
+
+- Utilized PyTorch and Torch Geometric GNN paradigms achieving an accuracy of **96%**
+- Used Spectral graph theory, Graph Neural Networks, and Cosmograph for visualization
+- Implemented GNN Explainer to create explanations for machine learning predictions
+
+*Technologies: PyTorch, Torch Geometric, Sklearn, Pandas, Matplotlib, GNN Explainer*
