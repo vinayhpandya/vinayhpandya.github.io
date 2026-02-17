@@ -110,5 +110,26 @@
     "title": "Professional Experience",
     "section": "Associate Software Engineer",
     "text": "Associate Software Engineer\nAccenture Services Private Limited | Sep 2018 - Sep 2019\n\nBuilt incident management chatbot with Node.js and Firebase, integrating PagerDuty for automated escalation and reducing incident response times by 20%\nCreated monitoring dashboards using Splunk and AWS CloudWatch to track business KPIs, improving financial visibility by 10%\n\nTechnologies: Node.js, Firebase, PagerDuty, Splunk, AWS CloudWatch"
+  },
+  {
+    "objectID": "projects.html#view-on-github",
+    "href": "projects.html#view-on-github",
+    "title": "Projects",
+    "section": "View on GitHub",
+    "text": "View on GitHub"
+  },
+  {
+    "objectID": "projects.html#contributing-to-mlx-graphs",
+    "href": "projects.html#contributing-to-mlx-graphs",
+    "title": "Projects",
+    "section": "Contributing to mlx-graphs",
+    "text": "Contributing to mlx-graphs\nContributed to mlx-graphs library ranging from datasets to graph transformations\n\nAdded elliptic bitcoin dataset to mlx-graphs\nAdded Node2Vec and other graph transformation algorithm\nAdded heterogeneous graphs like DBLP\nAdded mlx_cluster to assist with random walk algorithms\n\nTechnologies: mlx\nView documentation"
+  },
+  {
+    "objectID": "projects.html#view-documentation",
+    "href": "projects.html#view-documentation",
+    "title": "Projects",
+    "section": "View documentation",
+    "text": "View documentation"
   }
 ]

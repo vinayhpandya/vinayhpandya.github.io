@@ -24,14 +24,21 @@ Created a malware detection algorithm that can detect malware by disassembling o
 
 *Technologies: Python, PyTorch, BERT, XLNet, Transformers*
 
+[View on GitHub](https://link.springer.com/article/10.1007/s11416-022-00424-3){.btn .btn-outline-primary}
+
 ---
 
-## Identifying Illicit Transactions in Elliptic Bitcoin Network
+## Contributing to mlx-graphs
 
-Applied Graph Neural Networks to identify illicit nodes in blockchain transaction graphs.
+Contributed to mlx-graphs library ranging from datasets to graph transformations
 
-- Utilized PyTorch and Torch Geometric GNN paradigms achieving an accuracy of **96%**
-- Used Spectral graph theory, Graph Neural Networks, and Cosmograph for visualization
-- Implemented GNN Explainer to create explanations for machine learning predictions
+- Added elliptic bitcoin dataset to mlx-graphs
+- Added Node2Vec and other graph transformation algorithm
+- Added heterogeneous graphs like DBLP
+- Added mlx_cluster to assist with random walk algorithms
 
-*Technologies: PyTorch, Torch Geometric, Sklearn, Pandas, Matplotlib, GNN Explainer*
+*Technologies: mlx*
+
+[View documentation](https://mlx-graphs.github.io/mlx-graphs/index.html){.btn .btn-outline-primary}
+
+---
