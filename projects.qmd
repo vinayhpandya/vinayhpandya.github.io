@@ -13,7 +13,6 @@ A Python library for generating and calculating random graphs efficiently on App
 
 [View on GitHub](https://github.com/vinaypandya){.btn .btn-outline-primary}
 
----
 
 ## Malware Detection from Opcode Sequences (Master's Thesis)
 
@@ -24,9 +23,19 @@ Created a malware detection algorithm that can detect malware by disassembling o
 
 *Technologies: Python, PyTorch, BERT, XLNet, Transformers*
 
-[View on GitHub](https://link.springer.com/article/10.1007/s11416-022-00424-3){.btn .btn-outline-primary}
+[View on Springer](https://link.springer.com/article/10.1007/s11416-022-00424-3){.btn .btn-outline-primary}
+[View complete thesis](https://scholarworks.sjsu.edu/etd_projects/1083/){.btn .btn-outline-primary}
 
----
+## Elliptic bitcoin node classification
+
+Utilized graph machine learning algorithms to classify illicit nodes in bitcoin transactions
+
+- Utilized GraphSage, GNN, GCN to classify illicit nodes
+- Utilized GNN explainer to verify which nodes contribute for majority
+  of illicit nodes transaction
+- Contributed  to make this dataset available in mlx-graphs
+
+[View on Github](https://github.com/vinayhpandya/elliptic_bitcoin_graph_machine_learning){.btn .btn-outline-primary}
 
 ## Contributing to mlx-graphs
 
