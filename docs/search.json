@@ -60,7 +60,7 @@
     "href": "projects.html#malware-detection-from-opcode-sequences-masters-thesis",
     "title": "Projects",
     "section": "Malware Detection from Opcode Sequences (Master’s Thesis)",
-    "text": "Malware Detection from Opcode Sequences (Master’s Thesis)\nCreated a malware detection algorithm that can detect malware by disassembling opcode sequences.\n\nUtilized BERT and XLNet architectures and various ensemble methods to improve accuracy from 95% to 97%\nNovel approach using NLP techniques for cybersecurity applications\n\nTechnologies: Python, PyTorch, BERT, XLNet, Transformers"
+    "text": "Malware Detection from Opcode Sequences (Master’s Thesis)\nCreated a malware detection algorithm that can detect malware by disassembling opcode sequences.\n\nUtilized BERT and XLNet architectures and various ensemble methods to improve accuracy from 95% to 97%\nNovel approach using NLP techniques for cybersecurity applications\n\nTechnologies: Python, PyTorch, BERT, XLNet, Transformers\nView on Springer View complete thesis"
   },
   {
     "objectID": "projects.html#identifying-illicit-transactions-in-elliptic-bitcoin-network",
@@ -131,5 +131,12 @@
     "title": "Projects",
     "section": "View documentation",
     "text": "View documentation"
+  },
+  {
+    "objectID": "projects.html#elliptic-bitcoin-node-classification",
+    "href": "projects.html#elliptic-bitcoin-node-classification",
+    "title": "Projects",
+    "section": "Elliptic bitcoin node classification",
+    "text": "Elliptic bitcoin node classification\nUtilized graph machine learning algorithms to classify illicit nodes in bitcoin transactions\n\nUtilized GraphSage, GNN, GCN to classify illicit nodes\nUtilized GNN explainer to verify which nodes contribute for majority of illicit nodes transaction\nContributed to make this dataset available in mlx-graphs\n\nView on Github"
   }
 ]
