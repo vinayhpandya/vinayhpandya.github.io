@@ -551,9 +551,7 @@ flowchart TD
 
 All code, deployment scripts, and results are available at:
 
-```
-https://github.com/vinayhpandya/simple_full_stack_inference
-```
+<https://github.com/vinayhpandya/simple_full_stack_inference>
 
 ### Running Load Tests
 
