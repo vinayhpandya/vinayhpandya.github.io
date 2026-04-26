@@ -4,6 +4,7 @@ project:
 
 website:
   title: "Vinay Pandya"
+  site-url: https://vinayhpandya.github.io
   navbar:
     left:
       - href: index.qmd
@@ -12,8 +13,8 @@ website:
         text: Experience
       - href: projects.qmd
         text: Projects
-      # - href: blog.qmd
-      #   text: Blog
+      - href: blog.qmd
+        text: Blog
     right:
       - icon: github
         href: https://github.com/vinayhpandya

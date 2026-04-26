@@ -22,7 +22,7 @@ about:
       href: mailto:vinayharshadpandya27@gmail.com
 ---
 
-Software Engineer with 3+ years of experience building scalable web applications and machine learning solutions. I specialize in end-to-end systems using Java, Python, and modern frameworks, with expertise in cloud deployment, data engineering, and ML implementation.
+Software Engineer with 5 years of experience building scalable web applications and machine learning solutions. I specialize in end-to-end systems using Java, Python, and modern frameworks, with expertise in cloud deployment, data engineering, and ML implementation.
 
 **MS Computer Science** from San Jose State University. Based in San Francisco, CA.
 

@@ -1,0 +1,3618 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss  xmlns:atom="http://www.w3.org/2005/Atom" 
+      xmlns:media="http://search.yahoo.com/mrss/" 
+      xmlns:content="http://purl.org/rss/1.0/modules/content/" 
+      xmlns:dc="http://purl.org/dc/elements/1.1/" 
+      version="2.0">
+<channel>
+<title>Vinay Pandya</title>
+<link>https://vinayhpandya.github.io/blog.html</link>
+<atom:link href="https://vinayhpandya.github.io/blog.xml" rel="self" type="application/rss+xml"/>
+<description></description>
+<generator>quarto-1.8.27</generator>
+<lastBuildDate>Sat, 25 Apr 2026 07:00:00 GMT</lastBuildDate>
+<item>
+  <title>Building a Production-Grade LLM Inference Stack: Benchmarking vLLM, Ray Serve, and MoE Models</title>
+  <dc:creator>Vinay Pandya</dc:creator>
+  <dc:creator>Yiran Xu</dc:creator>
+  <link>https://vinayhpandya.github.io/posts/blog_second.html</link>
+  <description><![CDATA[ 
+
+
+
+
+
+<section id="introduction" class="level2" data-number="1">
+<h2 data-number="1" class="anchored" data-anchor-id="introduction"><span class="header-section-number">1</span> Introduction</h2>
+<p>These are our notes from benchmarking a self-hosted LLM inference stack. The goal was practical: figure out which combination of model, serving framework, and infrastructure actually holds up under realistic load, and where the real trade-offs are.</p>
+<p>I tested four configurations:</p>
+<ul>
+<li><strong>Qwen2.5-7B</strong> on Ray Serve + vLLM (production baseline)</li>
+<li><strong>DeepSeek-V2-Lite MoE</strong> with disaggregated prefill</li>
+<li><strong>DeepSeek-V2-Lite MoE</strong> without disaggregated prefill</li>
+<li><strong>LLaMA 3.1-8B</strong> with LMCache on Modal (serverless)</li>
+</ul>
+<p>The finding that surprised me most: the same DeepSeek model showed a 13x throughput difference depending solely on whether disaggregated prefill was enabled. That’s not a model choice — it’s a configuration choice, and it’s easy to get wrong.</p>
+</section>
+<section id="architecture-overview" class="level2" data-number="2">
+<h2 data-number="2" class="anchored" data-anchor-id="architecture-overview"><span class="header-section-number">2</span> Architecture Overview</h2>
+<section id="the-full-stack" class="level3" data-number="2.1">
+<h3 data-number="2.1" class="anchored" data-anchor-id="the-full-stack"><span class="header-section-number">2.1</span> The Full Stack</h3>
+<div class="cell" data-layout-align="default">
+<div class="cell-output-display">
+<div>
+<p></p><figure class="figure"><p></p>
+<div>
+
+</div>
+<p></p><figcaption> Full Stack LLM Inference Architecture</figcaption> </figure><p></p>
+</div>
+</div>
+</div>
+<p><strong>Layer Responsibilities:</strong></p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 25%">
+<col style="width: 42%">
+<col style="width: 32%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>Layer</th>
+<th>Technology</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Load Balancer</td>
+<td>Nginx</td>
+<td>SSE streaming, long timeouts for cold starts</td>
+</tr>
+<tr class="even">
+<td>Agent Layer</td>
+<td>LangGraph</td>
+<td>ReAct loop with tool calling (web search, calculator)</td>
+</tr>
+<tr class="odd">
+<td>API Gateway</td>
+<td>FastAPI</td>
+<td>Request routing, backend selection, metrics</td>
+</tr>
+<tr class="even">
+<td>Inference</td>
+<td>vLLM + Ray Serve</td>
+<td>High-throughput model serving</td>
+</tr>
+<tr class="odd">
+<td>Monitoring</td>
+<td>Prometheus + Grafana</td>
+<td>Real-time metrics and alerting</td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="why-this-architecture" class="level3" data-number="2.2">
+<h3 data-number="2.2" class="anchored" data-anchor-id="why-this-architecture"><span class="header-section-number">2.2</span> Why This Architecture?</h3>
+<p>A few decisions worth noting. Nginx sits at the front because SSE streaming requires careful timeout handling that most default configs don’t cover. The FastAPI gateway makes it straightforward to swap inference backends without changing anything on the client side. And running Prometheus from the start, even during experiments, meant I could catch degradation as it happened rather than reconstructing it from logs.</p>
+</section>
+</section>
+<section id="experiment-methodology" class="level2" data-number="3">
+<h2 data-number="3" class="anchored" data-anchor-id="experiment-methodology"><span class="header-section-number">3</span> Experiment Methodology</h2>
+<section id="testing-phases" class="level3" data-number="3.1">
+<h3 data-number="3.1" class="anchored" data-anchor-id="testing-phases"><span class="header-section-number">3.1</span> Testing Phases</h3>
+<div id="methodology-diagram" class="cell" data-execution_count="2">
+<details class="code-fold">
+<summary>Code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1">phases <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> pd.DataFrame({</span>
+<span id="cb1-2">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Phase'</span>: [<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Phase 0'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Phase 1'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Phase 2'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Phase 3'</span>],</span>
+<span id="cb1-3">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Name'</span>: [<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Warmup'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Baseline'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Concurrency Sweep'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Sustained RPS'</span>],</span>
+<span id="cb1-4">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Description'</span>: [</span>
+<span id="cb1-5">        <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'5 requests to warm containers (results discarded)'</span>,</span>
+<span id="cb1-6">        <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Sequential requests, varying prompt lengths'</span>,</span>
+<span id="cb1-7">        <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Parallel requests: 1, 2, 4, 8, 16 concurrent'</span>,</span>
+<span id="cb1-8">        <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Fixed rate: 1.0, 2.0, 5.0, 10.0 req/s for 30s each'</span></span>
+<span id="cb1-9">    ],</span>
+<span id="cb1-10">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Purpose'</span>: [</span>
+<span id="cb1-11">        <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Eliminate cold-start noise'</span>,</span>
+<span id="cb1-12">        <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Establish single-request performance'</span>,</span>
+<span id="cb1-13">        <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Find concurrency limits'</span>,</span>
+<span id="cb1-14">        <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Test sustained production load'</span></span>
+<span id="cb1-15">    ]</span>
+<span id="cb1-16">})</span>
+<span id="cb1-17"></span>
+<span id="cb1-18">fig <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> go.Figure(data<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>[go.Table(</span>
+<span id="cb1-19">    header<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">dict</span>(</span>
+<span id="cb1-20">        values<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'&lt;b&gt;Phase&lt;/b&gt;'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'&lt;b&gt;Name&lt;/b&gt;'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'&lt;b&gt;Description&lt;/b&gt;'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'&lt;b&gt;Purpose&lt;/b&gt;'</span>],</span>
+<span id="cb1-21">        fill_color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'#2C3E50'</span>,</span>
+<span id="cb1-22">        font<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">dict</span>(color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'white'</span>, size<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">12</span>),</span>
+<span id="cb1-23">        align<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'left'</span></span>
+<span id="cb1-24">    ),</span>
+<span id="cb1-25">    cells<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">dict</span>(</span>
+<span id="cb1-26">        values<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>[phases[col] <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> col <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> phases.columns],</span>
+<span id="cb1-27">        fill_color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'#F8F9FA'</span>,</span>
+<span id="cb1-28">        align<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'left'</span>,</span>
+<span id="cb1-29">        height<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">30</span></span>
+<span id="cb1-30">    )</span>
+<span id="cb1-31">)])</span>
+<span id="cb1-32">fig.update_layout(margin<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">dict</span>(l<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>, r<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>, t<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>, b<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>), height<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">200</span>)</span>
+<span id="cb1-33">fig.show()</span></code></pre></div></div>
+</details>
+</div>
+</section>
+<section id="metrics-collected" class="level3" data-number="3.2">
+<h3 data-number="3.2" class="anchored" data-anchor-id="metrics-collected"><span class="header-section-number">3.2</span> Metrics Collected</h3>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>Metric</th>
+<th>Description</th>
+<th>Why It Matters</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>TTFT</strong></td>
+<td>Time to First Token</td>
+<td>User-perceived responsiveness</td>
+</tr>
+<tr class="even">
+<td><strong>Total Latency</strong></td>
+<td>End-to-end request time</td>
+<td>SLA compliance</td>
+</tr>
+<tr class="odd">
+<td><strong>Throughput</strong></td>
+<td>Tokens per second</td>
+<td>Cost efficiency</td>
+</tr>
+<tr class="even">
+<td><strong>TPOT</strong></td>
+<td>Time per Output Token</td>
+<td>Generation smoothness</td>
+</tr>
+<tr class="odd">
+<td><strong>Success Rate</strong></td>
+<td>% of completed requests</td>
+<td>Reliability</td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="dataset" class="level3" data-number="3.3">
+<h3 data-number="3.3" class="anchored" data-anchor-id="dataset"><span class="header-section-number">3.3</span> Dataset</h3>
+<p>All experiments use the <strong>ShareGPT</strong> dataset:</p>
+<ul>
+<li>500 conversations</li>
+<li>Input lengths: 100-2048 tokens</li>
+<li>Realistic multi-turn dialogue patterns</li>
+</ul>
+</section>
+</section>
+<section id="sec-qwen" class="level2" data-number="4">
+<h2 data-number="4" class="anchored" data-anchor-id="sec-qwen"><span class="header-section-number">4</span> Experiment 1: Qwen2.5-7B on Anyscale</h2>
+<section id="setup" class="level3" data-number="4.1">
+<h3 data-number="4.1" class="anchored" data-anchor-id="setup"><span class="header-section-number">4.1</span> Setup</h3>
+<ul>
+<li><strong>Model:</strong> Qwen2.5-7B-Instruct</li>
+<li><strong>Framework:</strong> Ray Serve + vLLM</li>
+<li><strong>Infrastructure:</strong> Anyscale managed cluster</li>
+<li><strong>GPU:</strong> A10G</li>
+</ul>
+</section>
+<section id="results" class="level3" data-number="4.2">
+<h3 data-number="4.2" class="anchored" data-anchor-id="results"><span class="header-section-number">4.2</span> Results</h3>
+<div id="qwen-concurrency" class="cell" data-execution_count="3">
+<details class="code-fold">
+<summary>Code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb2" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Filter out warmup row if present</span></span>
+<span id="cb2-2">qwen_data <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> qwen_results[qwen_results[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'concurrency'</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&gt;</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>].copy()</span>
+<span id="cb2-3"></span>
+<span id="cb2-4">fig <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> make_subplots(</span>
+<span id="cb2-5">    rows<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>, cols<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>,</span>
+<span id="cb2-6">    subplot_titles<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>(</span>
+<span id="cb2-7">        <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'TTFT by Concurrency'</span>,</span>
+<span id="cb2-8">        <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Throughput by Concurrency'</span>,</span>
+<span id="cb2-9">        <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Total Latency by Concurrency'</span>,</span>
+<span id="cb2-10">        <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Success Rate'</span></span>
+<span id="cb2-11">    ),</span>
+<span id="cb2-12">    vertical_spacing<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.15</span></span>
+<span id="cb2-13">)</span>
+<span id="cb2-14"></span>
+<span id="cb2-15"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># TTFT</span></span>
+<span id="cb2-16">fig.add_trace(</span>
+<span id="cb2-17">    go.Scatter(x<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>qwen_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'concurrency'</span>], y<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>qwen_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'ttft_p50_ms'</span>],</span>
+<span id="cb2-18">               mode<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'lines+markers'</span>, name<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'TTFT p50'</span>, line<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">dict</span>(color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'#3498DB'</span>)),</span>
+<span id="cb2-19">    row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span></span>
+<span id="cb2-20">)</span>
+<span id="cb2-21">fig.add_trace(</span>
+<span id="cb2-22">    go.Scatter(x<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>qwen_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'concurrency'</span>], y<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>qwen_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'ttft_p90_ms'</span>],</span>
+<span id="cb2-23">               mode<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'lines+markers'</span>, name<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'TTFT p90'</span>, line<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">dict</span>(color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'#E74C3C'</span>, dash<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'dash'</span>)),</span>
+<span id="cb2-24">    row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span></span>
+<span id="cb2-25">)</span>
+<span id="cb2-26"></span>
+<span id="cb2-27"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Throughput</span></span>
+<span id="cb2-28">fig.add_trace(</span>
+<span id="cb2-29">    go.Bar(x<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>qwen_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'concurrency'</span>], y<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>qwen_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'throughput_tokens_per_sec'</span>],</span>
+<span id="cb2-30">           name<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Throughput'</span>, marker_color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'#27AE60'</span>),</span>
+<span id="cb2-31">    row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span></span>
+<span id="cb2-32">)</span>
+<span id="cb2-33"></span>
+<span id="cb2-34"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Total Latency</span></span>
+<span id="cb2-35">fig.add_trace(</span>
+<span id="cb2-36">    go.Scatter(x<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>qwen_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'concurrency'</span>], y<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>qwen_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'total_latency_p50_ms'</span>],</span>
+<span id="cb2-37">               mode<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'lines+markers'</span>, name<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Latency p50'</span>, line<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">dict</span>(color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'#9B59B6'</span>)),</span>
+<span id="cb2-38">    row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span></span>
+<span id="cb2-39">)</span>
+<span id="cb2-40">fig.add_trace(</span>
+<span id="cb2-41">    go.Scatter(x<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>qwen_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'concurrency'</span>], y<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>qwen_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'total_latency_p90_ms'</span>],</span>
+<span id="cb2-42">               mode<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'lines+markers'</span>, name<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Latency p90'</span>, line<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">dict</span>(color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'#E67E22'</span>, dash<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'dash'</span>)),</span>
+<span id="cb2-43">    row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span></span>
+<span id="cb2-44">)</span>
+<span id="cb2-45"></span>
+<span id="cb2-46"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Success Rate</span></span>
+<span id="cb2-47">success_rate <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">100</span> <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span> qwen_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'error_rate_%'</span>]</span>
+<span id="cb2-48">fig.add_trace(</span>
+<span id="cb2-49">    go.Bar(x<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>qwen_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'concurrency'</span>], y<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>success_rate,</span>
+<span id="cb2-50">           name<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Success %'</span>, marker_color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'#1ABC9C'</span>),</span>
+<span id="cb2-51">    row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span></span>
+<span id="cb2-52">)</span>
+<span id="cb2-53"></span>
+<span id="cb2-54">fig.update_layout(height<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">600</span>, showlegend<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="va" style="color: #111111;
+background-color: null;
+font-style: inherit;">True</span>, title_text<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Qwen2.5-7B Performance Metrics"</span>)</span>
+<span id="cb2-55">fig.update_xaxes(title_text<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Concurrency"</span>, row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>)</span>
+<span id="cb2-56">fig.update_xaxes(title_text<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Concurrency"</span>, row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>)</span>
+<span id="cb2-57">fig.update_yaxes(title_text<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"ms"</span>, row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>)</span>
+<span id="cb2-58">fig.update_yaxes(title_text<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"tokens/sec"</span>, row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>)</span>
+<span id="cb2-59">fig.update_yaxes(title_text<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"ms"</span>, row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>)</span>
+<span id="cb2-60">fig.update_yaxes(title_text<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"%"</span>, row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>)</span>
+<span id="cb2-61">fig.show()</span></code></pre></div></div>
+</details>
+</div>
+</section>
+<section id="key-findings" class="level3" data-number="4.3">
+<h3 data-number="4.3" class="anchored" data-anchor-id="key-findings"><span class="header-section-number">4.3</span> Key Findings</h3>
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>Qwen2.5-7B Performance Summary
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<ul>
+<li><strong>100% success rate</strong> across all concurrency levels (1–16)</li>
+<li><strong>TTFT p50:</strong> 408–564ms, stable across load levels</li>
+<li><strong>Throughput:</strong> 34–37 tokens/sec, essentially flat</li>
+<li>Latency increases linearly with concurrency — no sudden cliff</li>
+</ul>
+</div>
+</div>
+<p>Qwen held up well. What I didn’t expect was how flat the throughput curve stayed — it didn’t gain much as concurrency increased, but it also didn’t degrade. The linear latency scaling makes it straightforward to set SLAs: if p50 is 408ms at concurrency 1, you can roughly estimate what it’ll look like at higher load without surprises.</p>
+<p>Its tool-calling reliability is also notably good, which matters for the agent layer. This is why it’s the production baseline.</p>
+</section>
+</section>
+<section id="sec-deepseek-disagg" class="level2" data-number="5">
+<h2 data-number="5" class="anchored" data-anchor-id="sec-deepseek-disagg"><span class="header-section-number">5</span> Experiment 2: DeepSeek MoE with Disaggregated Prefill</h2>
+<section id="what-is-disaggregated-prefill" class="level3" data-number="5.1">
+<h3 data-number="5.1" class="anchored" data-anchor-id="what-is-disaggregated-prefill"><span class="header-section-number">5.1</span> What is Disaggregated Prefill?</h3>
+<p>LLM inference has two distinct phases:</p>
+<ol type="1">
+<li><strong>Prefill:</strong> Process input tokens (compute-bound)</li>
+<li><strong>Decode:</strong> Generate output tokens one at a time (memory-bound)</li>
+</ol>
+<p>These phases have very different resource profiles. Disaggregated prefill separates them onto different workers so each can be tuned independently. For MoE models, this matters more than usual — expert routing during prefill adds overhead that gets in the way of efficient decoding if both phases share the same worker.</p>
+<div class="cell" data-layout-align="default">
+<div class="cell-output-display">
+<div>
+<p></p><figure class="figure"><p></p>
+<div>
+
+</div>
+<p></p><figcaption> Disaggregated Prefill Architecture</figcaption> </figure><p></p>
+</div>
+</div>
+</div>
+</section>
+<section id="setup-1" class="level3" data-number="5.2">
+<h3 data-number="5.2" class="anchored" data-anchor-id="setup-1"><span class="header-section-number">5.2</span> Setup</h3>
+<ul>
+<li><strong>Model:</strong> DeepSeek-V2-Lite-Chat (16B total, 2.4B active parameters)</li>
+<li><strong>Framework:</strong> Ray Serve + vLLM with PD disaggregation</li>
+<li><strong>Infrastructure:</strong> Anyscale (g5.12xlarge, 4x A10G)</li>
+</ul>
+</section>
+<section id="results-1" class="level3" data-number="5.3">
+<h3 data-number="5.3" class="anchored" data-anchor-id="results-1"><span class="header-section-number">5.3</span> Results</h3>
+<div id="deepseek-disagg-results" class="cell" data-execution_count="4">
+<details class="code-fold">
+<summary>Code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb3-1"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Filter valid data</span></span>
+<span id="cb3-2">ds_data <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> deepseek_disagg[deepseek_disagg[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'concurrency'</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&gt;</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>].copy()</span>
+<span id="cb3-3"></span>
+<span id="cb3-4">fig <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> make_subplots(</span>
+<span id="cb3-5">    rows<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, cols<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>,</span>
+<span id="cb3-6">    subplot_titles<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Throughput Comparison'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'TTFT Comparison'</span>)</span>
+<span id="cb3-7">)</span>
+<span id="cb3-8"></span>
+<span id="cb3-9">fig.add_trace(</span>
+<span id="cb3-10">    go.Bar(x<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>ds_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'concurrency'</span>], y<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>ds_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'throughput_tokens_per_sec'</span>],</span>
+<span id="cb3-11">           name<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'DeepSeek (Disagg)'</span>, marker_color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'#E74C3C'</span>),</span>
+<span id="cb3-12">    row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span></span>
+<span id="cb3-13">)</span>
+<span id="cb3-14"></span>
+<span id="cb3-15">fig.add_trace(</span>
+<span id="cb3-16">    go.Scatter(x<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>ds_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'concurrency'</span>], y<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>ds_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'ttft_p50_ms'</span>],</span>
+<span id="cb3-17">               mode<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'lines+markers'</span>, name<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'TTFT p50'</span>, line<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">dict</span>(color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'#3498DB'</span>)),</span>
+<span id="cb3-18">    row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span></span>
+<span id="cb3-19">)</span>
+<span id="cb3-20"></span>
+<span id="cb3-21">fig.update_layout(height<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">400</span>, title_text<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"DeepSeek-V2-Lite with Disaggregated Prefill"</span>)</span>
+<span id="cb3-22">fig.update_xaxes(title_text<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Concurrency"</span>)</span>
+<span id="cb3-23">fig.update_yaxes(title_text<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"tokens/sec"</span>, row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>)</span>
+<span id="cb3-24">fig.update_yaxes(title_text<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"ms"</span>, row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>)</span>
+<span id="cb3-25">fig.show()</span></code></pre></div></div>
+</details>
+</div>
+</section>
+<section id="key-findings-1" class="level3" data-number="5.4">
+<h3 data-number="5.4" class="anchored" data-anchor-id="key-findings-1"><span class="header-section-number">5.4</span> Key Findings</h3>
+<div class="callout callout-style-default callout-important callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Important</span>DeepSeek Disaggregated Performance
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<ul>
+<li><strong>85 tokens/sec</strong> at concurrency=1 — 2.3x higher than Qwen</li>
+<li><strong>100% success rate</strong> across all load levels</li>
+<li><strong>TTFT p50:</strong> 406ms, on par with Qwen despite a much larger model</li>
+<li>MoE efficiency only materializes with the right infrastructure</li>
+</ul>
+</div>
+</div>
+<p>The throughput number was the clearest result from the whole experiment. 85 tokens/sec from a 16B-parameter model, with TTFT matching a 7B model, is only possible because the disaggregated setup lets the prefill and decode workers each do what they’re actually good at. Without it, the picture is very different — see the next section.</p>
+</section>
+</section>
+<section id="sec-deepseek-no-disagg" class="level2" data-number="6">
+<h2 data-number="6" class="anchored" data-anchor-id="sec-deepseek-no-disagg"><span class="header-section-number">6</span> Experiment 3: DeepSeek WITHOUT Disaggregation</h2>
+<p>I ran the same DeepSeek model without disaggregated prefill to make the comparison concrete.</p>
+<section id="results-2" class="level3" data-number="6.1">
+<h3 data-number="6.1" class="anchored" data-anchor-id="results-2"><span class="header-section-number">6.1</span> Results</h3>
+<!-- TODO: Add CSV path when results are available -->
+<div id="deepseek-comparison" class="cell" data-execution_count="5">
+<details class="code-fold">
+<summary>Code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># This will be populated with actual non-disaggregated results</span></span>
+<span id="cb4-2"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># For now, using documented values from moe-ray-deepseek-loadtest-result.md</span></span>
+<span id="cb4-3"></span>
+<span id="cb4-4">comparison_data <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> pd.DataFrame({</span>
+<span id="cb4-5">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Configuration'</span>: [<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'With Disaggregation'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Without Disaggregation'</span>],</span>
+<span id="cb4-6">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Throughput (tok/s)'</span>: [<span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">85.1</span>, <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">6.6</span>],</span>
+<span id="cb4-7">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'TTFT p50 (ms)'</span>: [<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">406</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">5028</span>],</span>
+<span id="cb4-8">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Success Rate (%)'</span>: [<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">100</span>, <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">64.7</span>],</span>
+<span id="cb4-9">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Max Stable RPS'</span>: [<span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">10.0</span>, <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2.0</span>]</span>
+<span id="cb4-10">})</span>
+<span id="cb4-11"></span>
+<span id="cb4-12">fig <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> make_subplots(</span>
+<span id="cb4-13">    rows<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>, cols<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>,</span>
+<span id="cb4-14">    subplot_titles<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Throughput'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'TTFT'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Success Rate'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Max Stable RPS'</span>),</span>
+<span id="cb4-15">    specs<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>[[{<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"type"</span>: <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"bar"</span>}, {<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"type"</span>: <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"bar"</span>}],</span>
+<span id="cb4-16">           [{<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"type"</span>: <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"bar"</span>}, {<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"type"</span>: <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"bar"</span>}]]</span>
+<span id="cb4-17">)</span>
+<span id="cb4-18"></span>
+<span id="cb4-19">colors <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> [<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'#27AE60'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'#E74C3C'</span>]</span>
+<span id="cb4-20"></span>
+<span id="cb4-21">fig.add_trace(go.Bar(x<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>comparison_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Configuration'</span>],</span>
+<span id="cb4-22">                     y<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>comparison_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Throughput (tok/s)'</span>],</span>
+<span id="cb4-23">                     marker_color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>colors), row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>)</span>
+<span id="cb4-24">fig.add_trace(go.Bar(x<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>comparison_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Configuration'</span>],</span>
+<span id="cb4-25">                     y<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>comparison_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'TTFT p50 (ms)'</span>],</span>
+<span id="cb4-26">                     marker_color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>colors), row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>)</span>
+<span id="cb4-27">fig.add_trace(go.Bar(x<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>comparison_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Configuration'</span>],</span>
+<span id="cb4-28">                     y<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>comparison_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Success Rate (%)'</span>],</span>
+<span id="cb4-29">                     marker_color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>colors), row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>)</span>
+<span id="cb4-30">fig.add_trace(go.Bar(x<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>comparison_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Configuration'</span>],</span>
+<span id="cb4-31">                     y<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>comparison_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Max Stable RPS'</span>],</span>
+<span id="cb4-32">                     marker_color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>colors), row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>)</span>
+<span id="cb4-33"></span>
+<span id="cb4-34">fig.update_layout(height<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">500</span>, showlegend<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="va" style="color: #111111;
+background-color: null;
+font-style: inherit;">False</span>,</span>
+<span id="cb4-35">                  title_text<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Disaggregated vs Non-Disaggregated Prefill"</span>)</span>
+<span id="cb4-36">fig.show()</span></code></pre></div></div>
+</details>
+</div>
+</section>
+<section id="the-difference" class="level3" data-number="6.2">
+<h3 data-number="6.2" class="anchored" data-anchor-id="the-difference"><span class="header-section-number">6.2</span> The Difference</h3>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>Metric</th>
+<th>With Disaggregation</th>
+<th>Without</th>
+<th>Difference</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Throughput</td>
+<td>85.1 tok/s</td>
+<td>6.6 tok/s</td>
+<td><strong>13x slower</strong></td>
+</tr>
+<tr class="even">
+<td>TTFT p50</td>
+<td>406ms</td>
+<td>5,028ms</td>
+<td><strong>12x slower</strong></td>
+</tr>
+<tr class="odd">
+<td>Success Rate</td>
+<td>100%</td>
+<td>64.7%</td>
+<td><strong>35% more failures</strong></td>
+</tr>
+<tr class="even">
+<td>Max Stable RPS</td>
+<td>10.0</td>
+<td>2.0</td>
+<td><strong>5x lower</strong></td>
+</tr>
+</tbody>
+</table>
+<div class="callout callout-style-default callout-warning callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Warning</span>Infrastructure vs Model Choice
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>This is the same model, same hardware, different configuration. The 13x throughput gap isn’t about the model — it’s about whether the serving infrastructure matches how MoE models actually work. Picking a MoE model without accounting for this will result in significantly worse performance than a smaller dense model.</p>
+</div>
+</div>
+</section>
+</section>
+<section id="sec-modal" class="level2" data-number="7">
+<h2 data-number="7" class="anchored" data-anchor-id="sec-modal"><span class="header-section-number">7</span> Experiment 4: LLaMA 3.1-8B with LMCache on Modal</h2>
+<section id="setup-2" class="level3" data-number="7.1">
+<h3 data-number="7.1" class="anchored" data-anchor-id="setup-2"><span class="header-section-number">7.1</span> Setup</h3>
+<ul>
+<li><strong>Model:</strong> LLaMA 3.1-8B with LMCache (prefix caching)</li>
+<li><strong>Framework:</strong> vLLM on Modal (serverless)</li>
+<li><strong>Optimization:</strong> Prefix caching for repeated prompts</li>
+</ul>
+</section>
+<section id="results-3" class="level3" data-number="7.2">
+<h3 data-number="7.2" class="anchored" data-anchor-id="results-3"><span class="header-section-number">7.2</span> Results</h3>
+<div id="modal-results" class="cell" data-execution_count="6">
+<details class="code-fold">
+<summary>Code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb5-1">modal_data <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> modal_lmcache[modal_lmcache[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'concurrency'</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&gt;</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>].copy()</span>
+<span id="cb5-2"></span>
+<span id="cb5-3">fig <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> make_subplots(rows<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, cols<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>,</span>
+<span id="cb5-4">                    subplot_titles<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Throughput'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'TTFT'</span>))</span>
+<span id="cb5-5"></span>
+<span id="cb5-6">fig.add_trace(</span>
+<span id="cb5-7">    go.Bar(x<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>modal_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'concurrency'</span>], y<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>modal_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'throughput_tokens_per_sec'</span>],</span>
+<span id="cb5-8">           marker_color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'#9B59B6'</span>),</span>
+<span id="cb5-9">    row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span></span>
+<span id="cb5-10">)</span>
+<span id="cb5-11"></span>
+<span id="cb5-12">fig.add_trace(</span>
+<span id="cb5-13">    go.Scatter(x<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>modal_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'concurrency'</span>], y<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>modal_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'ttft_p50_ms'</span>],</span>
+<span id="cb5-14">               mode<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'lines+markers'</span>, line<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">dict</span>(color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'#E67E22'</span>)),</span>
+<span id="cb5-15">    row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span></span>
+<span id="cb5-16">)</span>
+<span id="cb5-17"></span>
+<span id="cb5-18">fig.update_layout(height<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">350</span>, title_text<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Modal + LMCache Performance"</span>)</span>
+<span id="cb5-19">fig.update_xaxes(title_text<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Concurrency"</span>)</span>
+<span id="cb5-20">fig.show()</span></code></pre></div></div>
+</details>
+</div>
+</section>
+<section id="key-findings-2" class="level3" data-number="7.3">
+<h3 data-number="7.3" class="anchored" data-anchor-id="key-findings-2"><span class="header-section-number">7.3</span> Key Findings</h3>
+<p>Modal’s serverless deployment caps out around 4 concurrent requests, with throughput between 25–26 tokens/sec.&nbsp;It starts failing above 1.0 RPS on sustained load. The cold start penalty is real, and it shows up in the TTFT numbers under anything resembling steady traffic.</p>
+<p>That said, scale-to-zero is a meaningful cost advantage if your workload is bursty. For development, testing, or low-traffic use cases where you’re not running requests continuously, you won’t pay for idle GPU time. That trade-off just doesn’t work for anything that needs consistent throughput.</p>
+</section>
+<section id="trade-offs" class="level3" data-number="7.4">
+<h3 data-number="7.4" class="anchored" data-anchor-id="trade-offs"><span class="header-section-number">7.4</span> Trade-offs</h3>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>Pros</th>
+<th>Cons</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Scale-to-zero (cost savings)</td>
+<td>Cold start latency</td>
+</tr>
+<tr class="even">
+<td>Simple deployment</td>
+<td>Lower throughput ceiling</td>
+</tr>
+<tr class="odd">
+<td>Good for bursty workloads</td>
+<td>Not suitable for sustained load</td>
+</tr>
+</tbody>
+</table>
+</section>
+</section>
+<section id="sec-comparison" class="level2" data-number="8">
+<h2 data-number="8" class="anchored" data-anchor-id="sec-comparison"><span class="header-section-number">8</span> Head-to-Head Comparison</h2>
+<div id="final-comparison" class="cell" data-execution_count="7">
+<details class="code-fold">
+<summary>Code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb6-1">comparison <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> pd.DataFrame({</span>
+<span id="cb6-2">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Model'</span>: [<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Qwen2.5-7B'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'DeepSeek (Disagg)'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'DeepSeek (No Disagg)'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'LLaMA+LMCache'</span>],</span>
+<span id="cb6-3">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Throughput'</span>: [<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">37</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">85</span>, <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">6.6</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">26</span>],</span>
+<span id="cb6-4">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'TTFT_p50'</span>: [<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">408</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">406</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">5028</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1048</span>],</span>
+<span id="cb6-5">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Max_RPS'</span>: [<span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">10.0</span>, <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">10.0</span>, <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2.0</span>, <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1.0</span>],</span>
+<span id="cb6-6">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Success_Rate'</span>: [<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">100</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">100</span>, <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">64.7</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">75</span>]</span>
+<span id="cb6-7">})</span>
+<span id="cb6-8"></span>
+<span id="cb6-9">fig <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> make_subplots(</span>
+<span id="cb6-10">    rows<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>, cols<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>,</span>
+<span id="cb6-11">    subplot_titles<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Peak Throughput (tok/s)'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'TTFT p50 (ms)'</span>,</span>
+<span id="cb6-12">                    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Max Stable RPS'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Success Rate (%)'</span>),</span>
+<span id="cb6-13">    vertical_spacing<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.15</span></span>
+<span id="cb6-14">)</span>
+<span id="cb6-15"></span>
+<span id="cb6-16">colors <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> [<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'#3498DB'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'#E74C3C'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'#95A5A6'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'#9B59B6'</span>]</span>
+<span id="cb6-17"></span>
+<span id="cb6-18">fig.add_trace(go.Bar(x<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>comparison[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Model'</span>], y<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>comparison[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Throughput'</span>],</span>
+<span id="cb6-19">                     marker_color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>colors), row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>)</span>
+<span id="cb6-20">fig.add_trace(go.Bar(x<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>comparison[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Model'</span>], y<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>comparison[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'TTFT_p50'</span>],</span>
+<span id="cb6-21">                     marker_color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>colors), row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>)</span>
+<span id="cb6-22">fig.add_trace(go.Bar(x<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>comparison[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Model'</span>], y<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>comparison[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Max_RPS'</span>],</span>
+<span id="cb6-23">                     marker_color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>colors), row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>)</span>
+<span id="cb6-24">fig.add_trace(go.Bar(x<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>comparison[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Model'</span>], y<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>comparison[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Success_Rate'</span>],</span>
+<span id="cb6-25">                     marker_color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>colors), row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>)</span>
+<span id="cb6-26"></span>
+<span id="cb6-27">fig.update_layout(height<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">600</span>, showlegend<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="va" style="color: #111111;
+background-color: null;
+font-style: inherit;">False</span>,</span>
+<span id="cb6-28">                  title_text<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Model Performance Comparison"</span>)</span>
+<span id="cb6-29">fig.update_xaxes(tickangle<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">45</span>)</span>
+<span id="cb6-30">fig.show()</span></code></pre></div></div>
+</details>
+</div>
+<section id="summary-table" class="level3" data-number="8.1">
+<h3 data-number="8.1" class="anchored" data-anchor-id="summary-table"><span class="header-section-number">8.1</span> Summary Table</h3>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 10%">
+<col style="width: 15%">
+<col style="width: 25%">
+<col style="width: 28%">
+<col style="width: 19%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>Metric</th>
+<th>Qwen2.5-7B</th>
+<th>DeepSeek (Disagg)</th>
+<th>DeepSeek (No Disagg)</th>
+<th>LLaMA+LMCache</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>Peak Throughput</strong></td>
+<td>37 tok/s</td>
+<td><strong>85 tok/s</strong></td>
+<td>6.6 tok/s</td>
+<td>26 tok/s</td>
+</tr>
+<tr class="even">
+<td><strong>TTFT p50</strong></td>
+<td>408ms</td>
+<td><strong>406ms</strong></td>
+<td>5,028ms</td>
+<td>1,048ms</td>
+</tr>
+<tr class="odd">
+<td><strong>Max Stable RPS</strong></td>
+<td><strong>10.0</strong></td>
+<td><strong>10.0</strong></td>
+<td>2.0</td>
+<td>&lt;1.0</td>
+</tr>
+<tr class="even">
+<td><strong>Success Rate</strong></td>
+<td><strong>100%</strong></td>
+<td><strong>100%</strong></td>
+<td>64.7%</td>
+<td>~75%</td>
+</tr>
+<tr class="odd">
+<td><strong>Best For</strong></td>
+<td>Production APIs</td>
+<td>High throughput</td>
+<td>Avoid</td>
+<td>Cost savings</td>
+</tr>
+</tbody>
+</table>
+</section>
+</section>
+<section id="sec-recommendations" class="level2" data-number="9">
+<h2 data-number="9" class="anchored" data-anchor-id="sec-recommendations"><span class="header-section-number">9</span> Recommendations</h2>
+<section id="decision-matrix" class="level3" data-number="9.1">
+<h3 data-number="9.1" class="anchored" data-anchor-id="decision-matrix"><span class="header-section-number">9.1</span> Decision Matrix</h3>
+<div class="cell" data-layout-align="default">
+<div class="cell-output-display">
+<div>
+<p></p><figure class="figure"><p></p>
+<div>
+
+</div>
+<p></p><figcaption> Choosing Your Inference Stack</figcaption> </figure><p></p>
+</div>
+</div>
+</div>
+</section>
+<section id="when-to-use-what" class="level3" data-number="9.2">
+<h3 data-number="9.2" class="anchored" data-anchor-id="when-to-use-what"><span class="header-section-number">9.2</span> When to Use What</h3>
+<ol type="1">
+<li><strong>Production APIs with tool-calling:</strong> Qwen2.5-7B on Ray Serve
+<ul>
+<li>Highest reliability (100% success)</li>
+<li>Excellent function-calling support</li>
+<li>Predictable latency for SLAs</li>
+</ul></li>
+<li><strong>Maximum throughput batch processing:</strong> DeepSeek with disaggregated prefill
+<ul>
+<li>2.3x faster than alternatives</li>
+<li>Cost-efficient for high-volume workloads</li>
+</ul></li>
+<li><strong>Cost-sensitive, bursty workloads:</strong> Modal + LMCache
+<ul>
+<li>Scale-to-zero saves money during idle periods</li>
+<li>Good for development and testing</li>
+</ul></li>
+<li><strong>Avoid:</strong> Non-disaggregated MoE deployments
+<ul>
+<li>13x throughput penalty is rarely acceptable</li>
+</ul></li>
+</ol>
+</section>
+</section>
+<section id="sec-lessons" class="level2" data-number="10">
+<h2 data-number="10" class="anchored" data-anchor-id="sec-lessons"><span class="header-section-number">10</span> Lessons Learned</h2>
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>Key Takeaways
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<ol type="1">
+<li><p><strong>Infrastructure configuration can outweigh model selection.</strong> The DeepSeek results make this point clearly — a misconfigured 16B model underperformed a well-configured 7B model on every metric.</p></li>
+<li><p><strong>MoE models require disaggregated prefill to reach their potential.</strong> Without it, the prefill and decode phases compete for the same resources, and you end up with the worst of both.</p></li>
+<li><p><strong>Single-request benchmarks are not enough.</strong> The concurrency sweep and sustained RPS phases revealed limits that didn’t show up at low load.</p></li>
+<li><p><strong>TTFT and total latency tell different stories.</strong> A model can have acceptable total latency but poor TTFT, which matters a lot for interactive use cases where users are waiting for the stream to start.</p></li>
+<li><p><strong>Serverless is a cost tool, not a performance tool.</strong> Modal is useful when GPU utilization would otherwise be near zero. It’s not a substitute for a properly configured persistent cluster under real load.</p></li>
+</ol>
+</div>
+</div>
+</section>
+<section id="sec-conclusions" class="level2" data-number="11">
+<h2 data-number="11" class="anchored" data-anchor-id="sec-conclusions"><span class="header-section-number">11</span> Conclusions</h2>
+<p>If I had to distill this down: for a production API with tool-calling requirements, Qwen2.5-7B on Ray Serve is the most reliable option based on these experiments. If throughput is the priority and you’re willing to configure it correctly, DeepSeek with disaggregated prefill is clearly the better choice. The serverless option on Modal works for specific cost scenarios but has real ceiling constraints that rule it out for sustained workloads.</p>
+<p>The most important thing these experiments confirmed is that getting the infrastructure right matters as much as picking the right model. The difference between a well-configured and a poorly-configured MoE deployment is not marginal — it’s the difference between a useful system and one that fails a third of its requests.</p>
+</section>
+<section id="sec-future" class="level2" data-number="12">
+<h2 data-number="12" class="anchored" data-anchor-id="sec-future"><span class="header-section-number">12</span> Future Experiments</h2>
+<section id="planned" class="level3" data-number="12.1">
+<h3 data-number="12.1" class="anchored" data-anchor-id="planned"><span class="header-section-number">12.1</span> Planned</h3>
+<ul class="task-list">
+<li><label><input type="checkbox"><strong>Cost Analysis:</strong> $/1M tokens comparison across platforms</label></li>
+<li><label><input type="checkbox"><strong>Speculative Decoding:</strong> Draft model acceleration</label></li>
+<li><label><input type="checkbox"><strong>Quantization Impact:</strong> AWQ/GPTQ throughput vs quality</label></li>
+<li><label><input type="checkbox"><strong>Long Context:</strong> 8K, 16K, 32K token performance</label></li>
+<li><label><input type="checkbox"><strong>Agent Latency:</strong> End-to-end tool-calling benchmarks</label></li>
+<li><label><input type="checkbox"><strong>SGLang vs vLLM:</strong> Direct framework comparison</label></li>
+<li><label><input type="checkbox"><strong>Chunked Prefill:</strong> Alternative to disaggregation</label></li>
+</ul>
+</section>
+</section>
+<section id="sec-appendix" class="level2" data-number="13">
+<h2 data-number="13" class="anchored" data-anchor-id="sec-appendix"><span class="header-section-number">13</span> Appendix: Reproduction</h2>
+<section id="repository" class="level3" data-number="13.1">
+<h3 data-number="13.1" class="anchored" data-anchor-id="repository"><span class="header-section-number">13.1</span> Repository</h3>
+<p>All code, deployment scripts, and results are available at:</p>
+<pre><code>https://github.com/vinayhpandya/simple_full_stack_inference</code></pre>
+</section>
+<section id="running-load-tests" class="level3" data-number="13.2">
+<h3 data-number="13.2" class="anchored" data-anchor-id="running-load-tests"><span class="header-section-number">13.2</span> Running Load Tests</h3>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb8" style="background: #f1f3f5;"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb8-1"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Install dependencies</span></span>
+<span id="cb8-2"><span class="ex" style="color: null;
+background-color: null;
+font-style: inherit;">uv</span> sync</span>
+<span id="cb8-3"></span>
+<span id="cb8-4"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Run load test against your endpoint</span></span>
+<span id="cb8-5"><span class="ex" style="color: null;
+background-color: null;
+font-style: inherit;">python</span> load_test.py <span class="dt" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">\</span></span>
+<span id="cb8-6">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">--endpoint</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"https://your-endpoint.com/v1/chat/completions"</span> <span class="dt" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">\</span></span>
+<span id="cb8-7">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">--model</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"qwen2.5-7b-instruct"</span> <span class="dt" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">\</span></span>
+<span id="cb8-8">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">--dataset</span> sharegpt <span class="dt" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">\</span></span>
+<span id="cb8-9">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">--concurrency-levels</span> 1 2 4 8 16</span></code></pre></div></div>
+</section>
+<section id="deployment-commands" class="level3" data-number="13.3">
+<h3 data-number="13.3" class="anchored" data-anchor-id="deployment-commands"><span class="header-section-number">13.3</span> Deployment Commands</h3>
+<div class="tabset-margin-container"></div><div class="panel-tabset">
+<ul class="nav nav-tabs"><li class="nav-item"><a class="nav-link active" id="tabset-1-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-1-1" aria-controls="tabset-1-1" aria-selected="true" href="">Modal</a></li><li class="nav-item"><a class="nav-link" id="tabset-1-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-1-2" aria-controls="tabset-1-2" aria-selected="false" href="">Anyscale</a></li><li class="nav-item"><a class="nav-link" id="tabset-1-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-1-3" aria-controls="tabset-1-3" aria-selected="false" href="">Local Gateway</a></li></ul>
+<div class="tab-content">
+<div id="tabset-1-1" class="tab-pane active" aria-labelledby="tabset-1-1-tab">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9" style="background: #f1f3f5;"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb9-1"><span class="ex" style="color: null;
+background-color: null;
+font-style: inherit;">modal</span> deploy modal_vllm_deploy.py</span></code></pre></div></div>
+</div>
+<div id="tabset-1-2" class="tab-pane" aria-labelledby="tabset-1-2-tab">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10" style="background: #f1f3f5;"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb10-1"><span class="ex" style="color: null;
+background-color: null;
+font-style: inherit;">anyscale</span> service deploy anyscale_deepseek_deploy.py</span></code></pre></div></div>
+</div>
+<div id="tabset-1-3" class="tab-pane" aria-labelledby="tabset-1-3-tab">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11" style="background: #f1f3f5;"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb11-1"><span class="ex" style="color: null;
+background-color: null;
+font-style: inherit;">uv</span> run simple-ai-gateway</span></code></pre></div></div>
+</div>
+</div>
+</div>
+<hr>
+<p><em>Generated with benchmarking infrastructure from the simple_full_stack_inference project.</em></p>
+
+
+<!-- -->
+
+</section>
+</section>
+
+ ]]></description>
+  <category>llm</category>
+  <category>inference</category>
+  <category>vllm</category>
+  <category>ray-serve</category>
+  <category>moe</category>
+  <category>benchmarking</category>
+  <category>deep-learning</category>
+  <guid>https://vinayhpandya.github.io/posts/blog_second.html</guid>
+  <pubDate>Sat, 25 Apr 2026 07:00:00 GMT</pubDate>
+</item>
+<item>
+  <title>Building a Production-Grade LLM Inference Stack: Benchmarking vLLM, Ray Serve, and MoE Models</title>
+  <dc:creator>Vinay Pandya</dc:creator>
+  <dc:creator>Yiran Xu</dc:creator>
+  <link>https://vinayhpandya.github.io/posts/blog_first.html</link>
+  <description><![CDATA[ 
+
+
+
+
+
+<section id="introduction" class="level2" data-number="1">
+<h2 data-number="1" class="anchored" data-anchor-id="introduction"><span class="header-section-number">1</span> Introduction</h2>
+<p>Self-hosting Large Language Models (LLMs) has become increasingly important for organizations seeking to balance cost, latency, and data privacy. But choosing the right inference stack involves navigating a complex landscape of serving frameworks, model architectures, and infrastructure options.</p>
+<p>In this post, I share hands-on benchmarking results from building a production-grade LLM inference platform. We’ll compare:</p>
+<ul>
+<li><strong>Qwen2.5-7B</strong> on Ray Serve + vLLM (production baseline)</li>
+<li><strong>DeepSeek-V2-Lite MoE</strong> with and without disaggregated prefill</li>
+<li><strong>LLaMA 3.1-8B</strong> with LMCache on Modal (serverless)</li>
+</ul>
+<div class="callout callout-style-default callout-tip callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Tip</span>Key Takeaway
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>Infrastructure choices matter as much as model selection. The same MoE model showed <strong>13x throughput difference</strong> based solely on whether disaggregated prefill was enabled.</p>
+</div>
+</div>
+</section>
+<section id="architecture-overview" class="level2" data-number="2">
+<h2 data-number="2" class="anchored" data-anchor-id="architecture-overview"><span class="header-section-number">2</span> Architecture Overview</h2>
+<section id="the-full-stack" class="level3" data-number="2.1">
+<h3 data-number="2.1" class="anchored" data-anchor-id="the-full-stack"><span class="header-section-number">2.1</span> The Full Stack</h3>
+<p>Our inference platform consists of multiple layers, each serving a specific purpose:</p>
+<div class="cell" data-layout-align="default">
+<div class="cell-output-display">
+<div>
+<p></p><figure class="figure"><p></p>
+<div>
+
+</div>
+<p></p><figcaption> Full Stack LLM Inference Architecture</figcaption> </figure><p></p>
+</div>
+</div>
+</div>
+<p><strong>Layer Responsibilities:</strong></p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 25%">
+<col style="width: 42%">
+<col style="width: 32%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>Layer</th>
+<th>Technology</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Load Balancer</td>
+<td>Nginx</td>
+<td>SSE streaming, long timeouts for cold starts</td>
+</tr>
+<tr class="even">
+<td>Agent Layer</td>
+<td>LangGraph</td>
+<td>ReAct loop with tool calling (web search, calculator)</td>
+</tr>
+<tr class="odd">
+<td>API Gateway</td>
+<td>FastAPI</td>
+<td>Request routing, backend selection, metrics</td>
+</tr>
+<tr class="even">
+<td>Inference</td>
+<td>vLLM + Ray Serve</td>
+<td>High-throughput model serving</td>
+</tr>
+<tr class="odd">
+<td>Monitoring</td>
+<td>Prometheus + Grafana</td>
+<td>Real-time metrics and alerting</td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="why-this-architecture" class="level3" data-number="2.2">
+<h3 data-number="2.2" class="anchored" data-anchor-id="why-this-architecture"><span class="header-section-number">2.2</span> Why This Architecture?</h3>
+<ol type="1">
+<li><strong>Nginx handles SSE complexity</strong> - Streaming responses require careful timeout configuration</li>
+<li><strong>Gateway enables A/B testing</strong> - Route traffic between backends without client changes</li>
+<li><strong>Monitoring is essential</strong> - You can’t optimize what you don’t measure</li>
+</ol>
+</section>
+</section>
+<section id="experiment-methodology" class="level2" data-number="3">
+<h2 data-number="3" class="anchored" data-anchor-id="experiment-methodology"><span class="header-section-number">3</span> Experiment Methodology</h2>
+<section id="testing-phases" class="level3" data-number="3.1">
+<h3 data-number="3.1" class="anchored" data-anchor-id="testing-phases"><span class="header-section-number">3.1</span> Testing Phases</h3>
+<p>Our load testing follows a rigorous 4-phase methodology:</p>
+<div id="methodology-diagram" class="cell" data-execution_count="2">
+<details class="code-fold">
+<summary>Code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1">phases <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> pd.DataFrame({</span>
+<span id="cb1-2">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Phase'</span>: [<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Phase 0'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Phase 1'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Phase 2'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Phase 3'</span>],</span>
+<span id="cb1-3">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Name'</span>: [<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Warmup'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Baseline'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Concurrency Sweep'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Sustained RPS'</span>],</span>
+<span id="cb1-4">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Description'</span>: [</span>
+<span id="cb1-5">        <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'5 requests to warm containers (results discarded)'</span>,</span>
+<span id="cb1-6">        <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Sequential requests, varying prompt lengths'</span>,</span>
+<span id="cb1-7">        <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Parallel requests: 1, 2, 4, 8, 16 concurrent'</span>,</span>
+<span id="cb1-8">        <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Fixed rate: 1.0, 2.0, 5.0, 10.0 req/s for 30s each'</span></span>
+<span id="cb1-9">    ],</span>
+<span id="cb1-10">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Purpose'</span>: [</span>
+<span id="cb1-11">        <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Eliminate cold-start noise'</span>,</span>
+<span id="cb1-12">        <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Establish single-request performance'</span>,</span>
+<span id="cb1-13">        <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Find concurrency limits'</span>,</span>
+<span id="cb1-14">        <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Test sustained production load'</span></span>
+<span id="cb1-15">    ]</span>
+<span id="cb1-16">})</span>
+<span id="cb1-17"></span>
+<span id="cb1-18">fig <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> go.Figure(data<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>[go.Table(</span>
+<span id="cb1-19">    header<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">dict</span>(</span>
+<span id="cb1-20">        values<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'&lt;b&gt;Phase&lt;/b&gt;'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'&lt;b&gt;Name&lt;/b&gt;'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'&lt;b&gt;Description&lt;/b&gt;'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'&lt;b&gt;Purpose&lt;/b&gt;'</span>],</span>
+<span id="cb1-21">        fill_color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'#2C3E50'</span>,</span>
+<span id="cb1-22">        font<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">dict</span>(color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'white'</span>, size<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">12</span>),</span>
+<span id="cb1-23">        align<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'left'</span></span>
+<span id="cb1-24">    ),</span>
+<span id="cb1-25">    cells<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">dict</span>(</span>
+<span id="cb1-26">        values<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>[phases[col] <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> col <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> phases.columns],</span>
+<span id="cb1-27">        fill_color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'#F8F9FA'</span>,</span>
+<span id="cb1-28">        align<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'left'</span>,</span>
+<span id="cb1-29">        height<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">30</span></span>
+<span id="cb1-30">    )</span>
+<span id="cb1-31">)])</span>
+<span id="cb1-32">fig.update_layout(margin<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">dict</span>(l<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>, r<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>, t<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>, b<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>), height<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">200</span>)</span>
+<span id="cb1-33">fig.show()</span></code></pre></div></div>
+</details>
+</div>
+</section>
+<section id="metrics-collected" class="level3" data-number="3.2">
+<h3 data-number="3.2" class="anchored" data-anchor-id="metrics-collected"><span class="header-section-number">3.2</span> Metrics Collected</h3>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>Metric</th>
+<th>Description</th>
+<th>Why It Matters</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>TTFT</strong></td>
+<td>Time to First Token</td>
+<td>User-perceived responsiveness</td>
+</tr>
+<tr class="even">
+<td><strong>Total Latency</strong></td>
+<td>End-to-end request time</td>
+<td>SLA compliance</td>
+</tr>
+<tr class="odd">
+<td><strong>Throughput</strong></td>
+<td>Tokens per second</td>
+<td>Cost efficiency</td>
+</tr>
+<tr class="even">
+<td><strong>TPOT</strong></td>
+<td>Time per Output Token</td>
+<td>Generation smoothness</td>
+</tr>
+<tr class="odd">
+<td><strong>Success Rate</strong></td>
+<td>% of completed requests</td>
+<td>Reliability</td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="dataset" class="level3" data-number="3.3">
+<h3 data-number="3.3" class="anchored" data-anchor-id="dataset"><span class="header-section-number">3.3</span> Dataset</h3>
+<p>All experiments use the <strong>ShareGPT</strong> dataset:</p>
+<ul>
+<li>500 conversations</li>
+<li>Input lengths: 100-2048 tokens</li>
+<li>Realistic multi-turn dialogue patterns</li>
+</ul>
+</section>
+</section>
+<section id="sec-qwen" class="level2" data-number="4">
+<h2 data-number="4" class="anchored" data-anchor-id="sec-qwen"><span class="header-section-number">4</span> Experiment 1: Qwen2.5-7B on Anyscale</h2>
+<section id="setup" class="level3" data-number="4.1">
+<h3 data-number="4.1" class="anchored" data-anchor-id="setup"><span class="header-section-number">4.1</span> Setup</h3>
+<ul>
+<li><strong>Model:</strong> Qwen2.5-7B-Instruct</li>
+<li><strong>Framework:</strong> Ray Serve + vLLM</li>
+<li><strong>Infrastructure:</strong> Anyscale managed cluster</li>
+<li><strong>GPU:</strong> A10G</li>
+</ul>
+</section>
+<section id="results" class="level3" data-number="4.2">
+<h3 data-number="4.2" class="anchored" data-anchor-id="results"><span class="header-section-number">4.2</span> Results</h3>
+<div id="qwen-concurrency" class="cell" data-execution_count="3">
+<details class="code-fold">
+<summary>Code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb2" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Filter out warmup row if present</span></span>
+<span id="cb2-2">qwen_data <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> qwen_results[qwen_results[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'concurrency'</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&gt;</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>].copy()</span>
+<span id="cb2-3"></span>
+<span id="cb2-4">fig <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> make_subplots(</span>
+<span id="cb2-5">    rows<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>, cols<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>,</span>
+<span id="cb2-6">    subplot_titles<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>(</span>
+<span id="cb2-7">        <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'TTFT by Concurrency'</span>,</span>
+<span id="cb2-8">        <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Throughput by Concurrency'</span>,</span>
+<span id="cb2-9">        <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Total Latency by Concurrency'</span>,</span>
+<span id="cb2-10">        <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Success Rate'</span></span>
+<span id="cb2-11">    ),</span>
+<span id="cb2-12">    vertical_spacing<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.15</span></span>
+<span id="cb2-13">)</span>
+<span id="cb2-14"></span>
+<span id="cb2-15"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># TTFT</span></span>
+<span id="cb2-16">fig.add_trace(</span>
+<span id="cb2-17">    go.Scatter(x<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>qwen_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'concurrency'</span>], y<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>qwen_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'ttft_p50_ms'</span>],</span>
+<span id="cb2-18">               mode<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'lines+markers'</span>, name<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'TTFT p50'</span>, line<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">dict</span>(color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'#3498DB'</span>)),</span>
+<span id="cb2-19">    row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span></span>
+<span id="cb2-20">)</span>
+<span id="cb2-21">fig.add_trace(</span>
+<span id="cb2-22">    go.Scatter(x<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>qwen_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'concurrency'</span>], y<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>qwen_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'ttft_p90_ms'</span>],</span>
+<span id="cb2-23">               mode<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'lines+markers'</span>, name<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'TTFT p90'</span>, line<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">dict</span>(color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'#E74C3C'</span>, dash<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'dash'</span>)),</span>
+<span id="cb2-24">    row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span></span>
+<span id="cb2-25">)</span>
+<span id="cb2-26"></span>
+<span id="cb2-27"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Throughput</span></span>
+<span id="cb2-28">fig.add_trace(</span>
+<span id="cb2-29">    go.Bar(x<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>qwen_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'concurrency'</span>], y<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>qwen_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'throughput_tokens_per_sec'</span>],</span>
+<span id="cb2-30">           name<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Throughput'</span>, marker_color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'#27AE60'</span>),</span>
+<span id="cb2-31">    row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span></span>
+<span id="cb2-32">)</span>
+<span id="cb2-33"></span>
+<span id="cb2-34"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Total Latency</span></span>
+<span id="cb2-35">fig.add_trace(</span>
+<span id="cb2-36">    go.Scatter(x<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>qwen_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'concurrency'</span>], y<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>qwen_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'total_latency_p50_ms'</span>],</span>
+<span id="cb2-37">               mode<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'lines+markers'</span>, name<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Latency p50'</span>, line<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">dict</span>(color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'#9B59B6'</span>)),</span>
+<span id="cb2-38">    row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span></span>
+<span id="cb2-39">)</span>
+<span id="cb2-40">fig.add_trace(</span>
+<span id="cb2-41">    go.Scatter(x<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>qwen_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'concurrency'</span>], y<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>qwen_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'total_latency_p90_ms'</span>],</span>
+<span id="cb2-42">               mode<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'lines+markers'</span>, name<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Latency p90'</span>, line<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">dict</span>(color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'#E67E22'</span>, dash<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'dash'</span>)),</span>
+<span id="cb2-43">    row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span></span>
+<span id="cb2-44">)</span>
+<span id="cb2-45"></span>
+<span id="cb2-46"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Success Rate</span></span>
+<span id="cb2-47">success_rate <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">100</span> <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span> qwen_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'error_rate_%'</span>]</span>
+<span id="cb2-48">fig.add_trace(</span>
+<span id="cb2-49">    go.Bar(x<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>qwen_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'concurrency'</span>], y<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>success_rate,</span>
+<span id="cb2-50">           name<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Success %'</span>, marker_color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'#1ABC9C'</span>),</span>
+<span id="cb2-51">    row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span></span>
+<span id="cb2-52">)</span>
+<span id="cb2-53"></span>
+<span id="cb2-54">fig.update_layout(height<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">600</span>, showlegend<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="va" style="color: #111111;
+background-color: null;
+font-style: inherit;">True</span>, title_text<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Qwen2.5-7B Performance Metrics"</span>)</span>
+<span id="cb2-55">fig.update_xaxes(title_text<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Concurrency"</span>, row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>)</span>
+<span id="cb2-56">fig.update_xaxes(title_text<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Concurrency"</span>, row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>)</span>
+<span id="cb2-57">fig.update_yaxes(title_text<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"ms"</span>, row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>)</span>
+<span id="cb2-58">fig.update_yaxes(title_text<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"tokens/sec"</span>, row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>)</span>
+<span id="cb2-59">fig.update_yaxes(title_text<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"ms"</span>, row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>)</span>
+<span id="cb2-60">fig.update_yaxes(title_text<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"%"</span>, row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>)</span>
+<span id="cb2-61">fig.show()</span></code></pre></div></div>
+</details>
+</div>
+</section>
+<section id="key-findings" class="level3" data-number="4.3">
+<h3 data-number="4.3" class="anchored" data-anchor-id="key-findings"><span class="header-section-number">4.3</span> Key Findings</h3>
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>Qwen2.5-7B Performance Summary
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<ul>
+<li><strong>100% success rate</strong> across all concurrency levels (1-16)</li>
+<li><strong>TTFT p50:</strong> 408-564ms (remarkably stable under load)</li>
+<li><strong>Throughput:</strong> 34-37 tokens/sec</li>
+<li><strong>Graceful degradation:</strong> Latency increases linearly, no cliff</li>
+</ul>
+</div>
+</div>
+<p><strong>Why Qwen for Production?</strong></p>
+<ol type="1">
+<li><strong>Reliability:</strong> Zero failures even at 16 concurrent requests</li>
+<li><strong>Tool Calling:</strong> Excellent function-calling capabilities for agents</li>
+<li><strong>Predictable Latency:</strong> Easy to set SLAs with stable p90 metrics</li>
+</ol>
+</section>
+</section>
+<section id="sec-deepseek-disagg" class="level2" data-number="5">
+<h2 data-number="5" class="anchored" data-anchor-id="sec-deepseek-disagg"><span class="header-section-number">5</span> Experiment 2: DeepSeek MoE with Disaggregated Prefill</h2>
+<section id="what-is-disaggregated-prefill" class="level3" data-number="5.1">
+<h3 data-number="5.1" class="anchored" data-anchor-id="what-is-disaggregated-prefill"><span class="header-section-number">5.1</span> What is Disaggregated Prefill?</h3>
+<p>LLM inference has two distinct phases:</p>
+<ol type="1">
+<li><strong>Prefill:</strong> Process input tokens (compute-bound)</li>
+<li><strong>Decode:</strong> Generate output tokens one at a time (memory-bound)</li>
+</ol>
+<p><strong>Disaggregated prefill</strong> separates these phases onto different workers, allowing each to be optimized independently. This is especially beneficial for Mixture-of-Experts (MoE) models where expert routing adds complexity.</p>
+<div class="cell" data-layout-align="default">
+<div class="cell-output-display">
+<div>
+<p></p><figure class="figure"><p></p>
+<div>
+
+</div>
+<p></p><figcaption> Disaggregated Prefill Architecture</figcaption> </figure><p></p>
+</div>
+</div>
+</div>
+</section>
+<section id="setup-1" class="level3" data-number="5.2">
+<h3 data-number="5.2" class="anchored" data-anchor-id="setup-1"><span class="header-section-number">5.2</span> Setup</h3>
+<ul>
+<li><strong>Model:</strong> DeepSeek-V2-Lite-Chat (16B total, 2.4B active parameters)</li>
+<li><strong>Framework:</strong> Ray Serve + vLLM with PD disaggregation</li>
+<li><strong>Infrastructure:</strong> Anyscale (g5.12xlarge, 4x A10G)</li>
+</ul>
+</section>
+<section id="results-1" class="level3" data-number="5.3">
+<h3 data-number="5.3" class="anchored" data-anchor-id="results-1"><span class="header-section-number">5.3</span> Results</h3>
+<div id="deepseek-disagg-results" class="cell" data-execution_count="4">
+<details class="code-fold">
+<summary>Code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb3-1"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Filter valid data</span></span>
+<span id="cb3-2">ds_data <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> deepseek_disagg[deepseek_disagg[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'concurrency'</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&gt;</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>].copy()</span>
+<span id="cb3-3"></span>
+<span id="cb3-4">fig <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> make_subplots(</span>
+<span id="cb3-5">    rows<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, cols<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>,</span>
+<span id="cb3-6">    subplot_titles<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Throughput Comparison'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'TTFT Comparison'</span>)</span>
+<span id="cb3-7">)</span>
+<span id="cb3-8"></span>
+<span id="cb3-9">fig.add_trace(</span>
+<span id="cb3-10">    go.Bar(x<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>ds_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'concurrency'</span>], y<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>ds_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'throughput_tokens_per_sec'</span>],</span>
+<span id="cb3-11">           name<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'DeepSeek (Disagg)'</span>, marker_color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'#E74C3C'</span>),</span>
+<span id="cb3-12">    row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span></span>
+<span id="cb3-13">)</span>
+<span id="cb3-14"></span>
+<span id="cb3-15">fig.add_trace(</span>
+<span id="cb3-16">    go.Scatter(x<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>ds_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'concurrency'</span>], y<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>ds_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'ttft_p50_ms'</span>],</span>
+<span id="cb3-17">               mode<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'lines+markers'</span>, name<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'TTFT p50'</span>, line<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">dict</span>(color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'#3498DB'</span>)),</span>
+<span id="cb3-18">    row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span></span>
+<span id="cb3-19">)</span>
+<span id="cb3-20"></span>
+<span id="cb3-21">fig.update_layout(height<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">400</span>, title_text<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"DeepSeek-V2-Lite with Disaggregated Prefill"</span>)</span>
+<span id="cb3-22">fig.update_xaxes(title_text<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Concurrency"</span>)</span>
+<span id="cb3-23">fig.update_yaxes(title_text<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"tokens/sec"</span>, row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>)</span>
+<span id="cb3-24">fig.update_yaxes(title_text<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"ms"</span>, row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>)</span>
+<span id="cb3-25">fig.show()</span></code></pre></div></div>
+</details>
+</div>
+</section>
+<section id="key-findings-1" class="level3" data-number="5.4">
+<h3 data-number="5.4" class="anchored" data-anchor-id="key-findings-1"><span class="header-section-number">5.4</span> Key Findings</h3>
+<div class="callout callout-style-default callout-important callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Important</span>DeepSeek Disaggregated Performance
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<ul>
+<li><strong>85 tokens/sec</strong> at concurrency=1 (2.3x faster than Qwen!)</li>
+<li><strong>100% success rate</strong> at all load levels</li>
+<li><strong>TTFT p50:</strong> 406ms (comparable to Qwen)</li>
+<li>MoE efficiency unlocked through proper infrastructure</li>
+</ul>
+</div>
+</div>
+</section>
+</section>
+<section id="sec-deepseek-no-disagg" class="level2" data-number="6">
+<h2 data-number="6" class="anchored" data-anchor-id="sec-deepseek-no-disagg"><span class="header-section-number">6</span> Experiment 3: DeepSeek WITHOUT Disaggregation</h2>
+<p>To demonstrate the impact of infrastructure choices, we ran the same DeepSeek model <strong>without</strong> disaggregated prefill.</p>
+<section id="results-2" class="level3" data-number="6.1">
+<h3 data-number="6.1" class="anchored" data-anchor-id="results-2"><span class="header-section-number">6.1</span> Results</h3>
+<!-- TODO: Add CSV path when results are available -->
+<div id="deepseek-comparison" class="cell" data-execution_count="5">
+<details class="code-fold">
+<summary>Code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># This will be populated with actual non-disaggregated results</span></span>
+<span id="cb4-2"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># For now, using documented values from moe-ray-deepseek-loadtest-result.md</span></span>
+<span id="cb4-3"></span>
+<span id="cb4-4">comparison_data <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> pd.DataFrame({</span>
+<span id="cb4-5">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Configuration'</span>: [<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'With Disaggregation'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Without Disaggregation'</span>],</span>
+<span id="cb4-6">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Throughput (tok/s)'</span>: [<span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">85.1</span>, <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">6.6</span>],</span>
+<span id="cb4-7">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'TTFT p50 (ms)'</span>: [<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">406</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">5028</span>],</span>
+<span id="cb4-8">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Success Rate (%)'</span>: [<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">100</span>, <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">64.7</span>],</span>
+<span id="cb4-9">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Max Stable RPS'</span>: [<span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">10.0</span>, <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2.0</span>]</span>
+<span id="cb4-10">})</span>
+<span id="cb4-11"></span>
+<span id="cb4-12">fig <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> make_subplots(</span>
+<span id="cb4-13">    rows<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>, cols<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>,</span>
+<span id="cb4-14">    subplot_titles<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Throughput'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'TTFT'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Success Rate'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Max Stable RPS'</span>),</span>
+<span id="cb4-15">    specs<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>[[{<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"type"</span>: <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"bar"</span>}, {<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"type"</span>: <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"bar"</span>}],</span>
+<span id="cb4-16">           [{<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"type"</span>: <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"bar"</span>}, {<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"type"</span>: <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"bar"</span>}]]</span>
+<span id="cb4-17">)</span>
+<span id="cb4-18"></span>
+<span id="cb4-19">colors <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> [<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'#27AE60'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'#E74C3C'</span>]</span>
+<span id="cb4-20"></span>
+<span id="cb4-21">fig.add_trace(go.Bar(x<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>comparison_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Configuration'</span>],</span>
+<span id="cb4-22">                     y<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>comparison_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Throughput (tok/s)'</span>],</span>
+<span id="cb4-23">                     marker_color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>colors), row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>)</span>
+<span id="cb4-24">fig.add_trace(go.Bar(x<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>comparison_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Configuration'</span>],</span>
+<span id="cb4-25">                     y<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>comparison_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'TTFT p50 (ms)'</span>],</span>
+<span id="cb4-26">                     marker_color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>colors), row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>)</span>
+<span id="cb4-27">fig.add_trace(go.Bar(x<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>comparison_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Configuration'</span>],</span>
+<span id="cb4-28">                     y<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>comparison_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Success Rate (%)'</span>],</span>
+<span id="cb4-29">                     marker_color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>colors), row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>)</span>
+<span id="cb4-30">fig.add_trace(go.Bar(x<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>comparison_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Configuration'</span>],</span>
+<span id="cb4-31">                     y<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>comparison_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Max Stable RPS'</span>],</span>
+<span id="cb4-32">                     marker_color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>colors), row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>)</span>
+<span id="cb4-33"></span>
+<span id="cb4-34">fig.update_layout(height<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">500</span>, showlegend<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="va" style="color: #111111;
+background-color: null;
+font-style: inherit;">False</span>,</span>
+<span id="cb4-35">                  title_text<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Disaggregated vs Non-Disaggregated Prefill"</span>)</span>
+<span id="cb4-36">fig.show()</span></code></pre></div></div>
+</details>
+</div>
+</section>
+<section id="the-shocking-difference" class="level3" data-number="6.2">
+<h3 data-number="6.2" class="anchored" data-anchor-id="the-shocking-difference"><span class="header-section-number">6.2</span> The Shocking Difference</h3>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>Metric</th>
+<th>With Disaggregation</th>
+<th>Without</th>
+<th>Difference</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Throughput</td>
+<td>85.1 tok/s</td>
+<td>6.6 tok/s</td>
+<td><strong>13x slower</strong></td>
+</tr>
+<tr class="even">
+<td>TTFT p50</td>
+<td>406ms</td>
+<td>5,028ms</td>
+<td><strong>12x slower</strong></td>
+</tr>
+<tr class="odd">
+<td>Success Rate</td>
+<td>100%</td>
+<td>64.7%</td>
+<td><strong>35% more failures</strong></td>
+</tr>
+<tr class="even">
+<td>Max Stable RPS</td>
+<td>10.0</td>
+<td>2.0</td>
+<td><strong>5x lower</strong></td>
+</tr>
+</tbody>
+</table>
+<div class="callout callout-style-default callout-warning callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Warning</span>Critical Infrastructure Insight
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>The <strong>same model</strong> showed 13x throughput difference based solely on whether disaggregated prefill was enabled. This demonstrates that infrastructure choices can matter more than model selection.</p>
+</div>
+</div>
+</section>
+</section>
+<section id="sec-modal" class="level2" data-number="7">
+<h2 data-number="7" class="anchored" data-anchor-id="sec-modal"><span class="header-section-number">7</span> Experiment 4: LLaMA 3.1-8B with LMCache on Modal</h2>
+<section id="setup-2" class="level3" data-number="7.1">
+<h3 data-number="7.1" class="anchored" data-anchor-id="setup-2"><span class="header-section-number">7.1</span> Setup</h3>
+<ul>
+<li><strong>Model:</strong> LLaMA 3.1-8B with LMCache (prefix caching)</li>
+<li><strong>Framework:</strong> vLLM on Modal (serverless)</li>
+<li><strong>Optimization:</strong> Prefix caching for repeated prompts</li>
+</ul>
+</section>
+<section id="results-3" class="level3" data-number="7.2">
+<h3 data-number="7.2" class="anchored" data-anchor-id="results-3"><span class="header-section-number">7.2</span> Results</h3>
+<div id="modal-results" class="cell" data-execution_count="6">
+<details class="code-fold">
+<summary>Code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb5-1">modal_data <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> modal_lmcache[modal_lmcache[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'concurrency'</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&gt;</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>].copy()</span>
+<span id="cb5-2"></span>
+<span id="cb5-3">fig <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> make_subplots(rows<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, cols<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>,</span>
+<span id="cb5-4">                    subplot_titles<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Throughput'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'TTFT'</span>))</span>
+<span id="cb5-5"></span>
+<span id="cb5-6">fig.add_trace(</span>
+<span id="cb5-7">    go.Bar(x<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>modal_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'concurrency'</span>], y<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>modal_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'throughput_tokens_per_sec'</span>],</span>
+<span id="cb5-8">           marker_color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'#9B59B6'</span>),</span>
+<span id="cb5-9">    row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span></span>
+<span id="cb5-10">)</span>
+<span id="cb5-11"></span>
+<span id="cb5-12">fig.add_trace(</span>
+<span id="cb5-13">    go.Scatter(x<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>modal_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'concurrency'</span>], y<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>modal_data[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'ttft_p50_ms'</span>],</span>
+<span id="cb5-14">               mode<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'lines+markers'</span>, line<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">dict</span>(color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'#E67E22'</span>)),</span>
+<span id="cb5-15">    row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span></span>
+<span id="cb5-16">)</span>
+<span id="cb5-17"></span>
+<span id="cb5-18">fig.update_layout(height<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">350</span>, title_text<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Modal + LMCache Performance"</span>)</span>
+<span id="cb5-19">fig.update_xaxes(title_text<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Concurrency"</span>)</span>
+<span id="cb5-20">fig.show()</span></code></pre></div></div>
+</details>
+</div>
+</section>
+<section id="key-findings-2" class="level3" data-number="7.3">
+<h3 data-number="7.3" class="anchored" data-anchor-id="key-findings-2"><span class="header-section-number">7.3</span> Key Findings</h3>
+<ul>
+<li><strong>Max sustainable:</strong> ~4 concurrent requests</li>
+<li><strong>Throughput:</strong> 25-26 tokens/sec</li>
+<li><strong>Fails at:</strong> &gt;1.0 RPS sustained load</li>
+</ul>
+</section>
+<section id="trade-offs" class="level3" data-number="7.4">
+<h3 data-number="7.4" class="anchored" data-anchor-id="trade-offs"><span class="header-section-number">7.4</span> Trade-offs</h3>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>Pros</th>
+<th>Cons</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Scale-to-zero (cost savings)</td>
+<td>Cold start latency</td>
+</tr>
+<tr class="even">
+<td>Simple deployment</td>
+<td>Lower throughput ceiling</td>
+</tr>
+<tr class="odd">
+<td>Good for bursty workloads</td>
+<td>Not suitable for sustained load</td>
+</tr>
+</tbody>
+</table>
+</section>
+</section>
+<section id="sec-comparison" class="level2" data-number="8">
+<h2 data-number="8" class="anchored" data-anchor-id="sec-comparison"><span class="header-section-number">8</span> Head-to-Head Comparison</h2>
+<div id="final-comparison" class="cell" data-execution_count="7">
+<details class="code-fold">
+<summary>Code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb6-1">comparison <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> pd.DataFrame({</span>
+<span id="cb6-2">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Model'</span>: [<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Qwen2.5-7B'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'DeepSeek (Disagg)'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'DeepSeek (No Disagg)'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'LLaMA+LMCache'</span>],</span>
+<span id="cb6-3">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Throughput'</span>: [<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">37</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">85</span>, <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">6.6</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">26</span>],</span>
+<span id="cb6-4">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'TTFT_p50'</span>: [<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">408</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">406</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">5028</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1048</span>],</span>
+<span id="cb6-5">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Max_RPS'</span>: [<span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">10.0</span>, <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">10.0</span>, <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2.0</span>, <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1.0</span>],</span>
+<span id="cb6-6">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Success_Rate'</span>: [<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">100</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">100</span>, <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">64.7</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">75</span>]</span>
+<span id="cb6-7">})</span>
+<span id="cb6-8"></span>
+<span id="cb6-9">fig <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> make_subplots(</span>
+<span id="cb6-10">    rows<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>, cols<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>,</span>
+<span id="cb6-11">    subplot_titles<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Peak Throughput (tok/s)'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'TTFT p50 (ms)'</span>,</span>
+<span id="cb6-12">                    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Max Stable RPS'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Success Rate (%)'</span>),</span>
+<span id="cb6-13">    vertical_spacing<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.15</span></span>
+<span id="cb6-14">)</span>
+<span id="cb6-15"></span>
+<span id="cb6-16">colors <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> [<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'#3498DB'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'#E74C3C'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'#95A5A6'</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'#9B59B6'</span>]</span>
+<span id="cb6-17"></span>
+<span id="cb6-18">fig.add_trace(go.Bar(x<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>comparison[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Model'</span>], y<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>comparison[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Throughput'</span>],</span>
+<span id="cb6-19">                     marker_color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>colors), row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>)</span>
+<span id="cb6-20">fig.add_trace(go.Bar(x<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>comparison[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Model'</span>], y<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>comparison[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'TTFT_p50'</span>],</span>
+<span id="cb6-21">                     marker_color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>colors), row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>)</span>
+<span id="cb6-22">fig.add_trace(go.Bar(x<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>comparison[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Model'</span>], y<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>comparison[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Max_RPS'</span>],</span>
+<span id="cb6-23">                     marker_color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>colors), row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>)</span>
+<span id="cb6-24">fig.add_trace(go.Bar(x<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>comparison[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Model'</span>], y<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>comparison[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'Success_Rate'</span>],</span>
+<span id="cb6-25">                     marker_color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>colors), row<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>, col<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>)</span>
+<span id="cb6-26"></span>
+<span id="cb6-27">fig.update_layout(height<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">600</span>, showlegend<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="va" style="color: #111111;
+background-color: null;
+font-style: inherit;">False</span>,</span>
+<span id="cb6-28">                  title_text<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Model Performance Comparison"</span>)</span>
+<span id="cb6-29">fig.update_xaxes(tickangle<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">45</span>)</span>
+<span id="cb6-30">fig.show()</span></code></pre></div></div>
+</details>
+</div>
+<section id="summary-table" class="level3" data-number="8.1">
+<h3 data-number="8.1" class="anchored" data-anchor-id="summary-table"><span class="header-section-number">8.1</span> Summary Table</h3>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 10%">
+<col style="width: 15%">
+<col style="width: 25%">
+<col style="width: 28%">
+<col style="width: 19%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>Metric</th>
+<th>Qwen2.5-7B</th>
+<th>DeepSeek (Disagg)</th>
+<th>DeepSeek (No Disagg)</th>
+<th>LLaMA+LMCache</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>Peak Throughput</strong></td>
+<td>37 tok/s</td>
+<td><strong>85 tok/s</strong></td>
+<td>6.6 tok/s</td>
+<td>26 tok/s</td>
+</tr>
+<tr class="even">
+<td><strong>TTFT p50</strong></td>
+<td>408ms</td>
+<td><strong>406ms</strong></td>
+<td>5,028ms</td>
+<td>1,048ms</td>
+</tr>
+<tr class="odd">
+<td><strong>Max Stable RPS</strong></td>
+<td><strong>10.0</strong></td>
+<td><strong>10.0</strong></td>
+<td>2.0</td>
+<td>&lt;1.0</td>
+</tr>
+<tr class="even">
+<td><strong>Success Rate</strong></td>
+<td><strong>100%</strong></td>
+<td><strong>100%</strong></td>
+<td>64.7%</td>
+<td>~75%</td>
+</tr>
+<tr class="odd">
+<td><strong>Best For</strong></td>
+<td>Production APIs</td>
+<td>High throughput</td>
+<td>Avoid</td>
+<td>Cost savings</td>
+</tr>
+</tbody>
+</table>
+</section>
+</section>
+<section id="sec-recommendations" class="level2" data-number="9">
+<h2 data-number="9" class="anchored" data-anchor-id="sec-recommendations"><span class="header-section-number">9</span> Recommendations</h2>
+<section id="decision-matrix" class="level3" data-number="9.1">
+<h3 data-number="9.1" class="anchored" data-anchor-id="decision-matrix"><span class="header-section-number">9.1</span> Decision Matrix</h3>
+<div class="cell" data-layout-align="default">
+<div class="cell-output-display">
+<div>
+<p></p><figure class="figure"><p></p>
+<div>
+
+</div>
+<p></p><figcaption> Choosing Your Inference Stack</figcaption> </figure><p></p>
+</div>
+</div>
+</div>
+</section>
+<section id="when-to-use-what" class="level3" data-number="9.2">
+<h3 data-number="9.2" class="anchored" data-anchor-id="when-to-use-what"><span class="header-section-number">9.2</span> When to Use What</h3>
+<ol type="1">
+<li><strong>Production APIs with tool-calling:</strong> Qwen2.5-7B on Ray Serve
+<ul>
+<li>Highest reliability (100% success)</li>
+<li>Excellent function-calling support</li>
+<li>Predictable latency for SLAs</li>
+</ul></li>
+<li><strong>Maximum throughput batch processing:</strong> DeepSeek with disaggregated prefill
+<ul>
+<li>2.3x faster than alternatives</li>
+<li>Cost-efficient for high-volume workloads</li>
+</ul></li>
+<li><strong>Cost-sensitive, bursty workloads:</strong> Modal + LMCache
+<ul>
+<li>Scale-to-zero saves money during idle periods</li>
+<li>Good for development and testing</li>
+</ul></li>
+<li><strong>Avoid:</strong> Non-disaggregated MoE deployments
+<ul>
+<li>13x throughput penalty is rarely acceptable</li>
+</ul></li>
+</ol>
+</section>
+</section>
+<section id="sec-lessons" class="level2" data-number="10">
+<h2 data-number="10" class="anchored" data-anchor-id="sec-lessons"><span class="header-section-number">10</span> Lessons Learned</h2>
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>Key Takeaways
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<ol type="1">
+<li><p><strong>Infrastructure choices matter as much as model selection</strong> - The same model showed 13x performance difference based on deployment strategy</p></li>
+<li><p><strong>MoE models need disaggregated prefill</strong> - Without it, you’re leaving 90%+ of performance on the table</p></li>
+<li><p><strong>Test under realistic load patterns</strong> - Single-request benchmarks don’t reveal concurrency limits</p></li>
+<li><p><strong>Monitor TTFT separately from total latency</strong> - Users perceive TTFT as responsiveness</p></li>
+<li><p><strong>Serverless has trade-offs</strong> - Great for cost, but cold starts and throughput ceilings matter</p></li>
+</ol>
+</div>
+</div>
+</section>
+<section id="sec-future" class="level2" data-number="11">
+<h2 data-number="11" class="anchored" data-anchor-id="sec-future"><span class="header-section-number">11</span> Future Experiments</h2>
+<!-- TODO: Add results as experiments are completed -->
+<section id="planned-experiments" class="level3" data-number="11.1">
+<h3 data-number="11.1" class="anchored" data-anchor-id="planned-experiments"><span class="header-section-number">11.1</span> Planned Experiments</h3>
+<ul class="task-list">
+<li><label><input type="checkbox"><strong>Cost Analysis:</strong> $/1M tokens comparison across platforms</label></li>
+<li><label><input type="checkbox"><strong>Speculative Decoding:</strong> Draft model acceleration</label></li>
+<li><label><input type="checkbox"><strong>Quantization Impact:</strong> AWQ/GPTQ throughput vs quality</label></li>
+<li><label><input type="checkbox"><strong>Long Context:</strong> 8K, 16K, 32K token performance</label></li>
+<li><label><input type="checkbox"><strong>Agent Latency:</strong> End-to-end tool-calling benchmarks</label></li>
+<li><label><input type="checkbox"><strong>SGLang vs vLLM:</strong> Direct framework comparison</label></li>
+<li><label><input type="checkbox"><strong>Chunked Prefill:</strong> Alternative to disaggregation</label></li>
+</ul>
+</section>
+</section>
+<section id="sec-appendix" class="level2" data-number="12">
+<h2 data-number="12" class="anchored" data-anchor-id="sec-appendix"><span class="header-section-number">12</span> Appendix: Reproduction</h2>
+<section id="repository" class="level3" data-number="12.1">
+<h3 data-number="12.1" class="anchored" data-anchor-id="repository"><span class="header-section-number">12.1</span> Repository</h3>
+<p>All code, deployment scripts, and results are available at:</p>
+<pre><code>https://github.com/vinayhpandya/simple_full_stack_inference</code></pre>
+</section>
+<section id="running-load-tests" class="level3" data-number="12.2">
+<h3 data-number="12.2" class="anchored" data-anchor-id="running-load-tests"><span class="header-section-number">12.2</span> Running Load Tests</h3>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb8" style="background: #f1f3f5;"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb8-1"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Install dependencies</span></span>
+<span id="cb8-2"><span class="ex" style="color: null;
+background-color: null;
+font-style: inherit;">uv</span> sync</span>
+<span id="cb8-3"></span>
+<span id="cb8-4"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Run load test against your endpoint</span></span>
+<span id="cb8-5"><span class="ex" style="color: null;
+background-color: null;
+font-style: inherit;">python</span> load_test.py <span class="dt" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">\</span></span>
+<span id="cb8-6">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">--endpoint</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"https://your-endpoint.com/v1/chat/completions"</span> <span class="dt" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">\</span></span>
+<span id="cb8-7">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">--model</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"qwen2.5-7b-instruct"</span> <span class="dt" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">\</span></span>
+<span id="cb8-8">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">--dataset</span> sharegpt <span class="dt" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">\</span></span>
+<span id="cb8-9">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">--concurrency-levels</span> 1 2 4 8 16</span></code></pre></div></div>
+</section>
+<section id="deployment-commands" class="level3" data-number="12.3">
+<h3 data-number="12.3" class="anchored" data-anchor-id="deployment-commands"><span class="header-section-number">12.3</span> Deployment Commands</h3>
+<div class="tabset-margin-container"></div><div class="panel-tabset">
+<ul class="nav nav-tabs"><li class="nav-item"><a class="nav-link active" id="tabset-1-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-1-1" aria-controls="tabset-1-1" aria-selected="true" href="">Modal</a></li><li class="nav-item"><a class="nav-link" id="tabset-1-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-1-2" aria-controls="tabset-1-2" aria-selected="false" href="">Anyscale</a></li><li class="nav-item"><a class="nav-link" id="tabset-1-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-1-3" aria-controls="tabset-1-3" aria-selected="false" href="">Local Gateway</a></li></ul>
+<div class="tab-content">
+<div id="tabset-1-1" class="tab-pane active" aria-labelledby="tabset-1-1-tab">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9" style="background: #f1f3f5;"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb9-1"><span class="ex" style="color: null;
+background-color: null;
+font-style: inherit;">modal</span> deploy modal_vllm_deploy.py</span></code></pre></div></div>
+</div>
+<div id="tabset-1-2" class="tab-pane" aria-labelledby="tabset-1-2-tab">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10" style="background: #f1f3f5;"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb10-1"><span class="ex" style="color: null;
+background-color: null;
+font-style: inherit;">anyscale</span> service deploy anyscale_deepseek_deploy.py</span></code></pre></div></div>
+</div>
+<div id="tabset-1-3" class="tab-pane" aria-labelledby="tabset-1-3-tab">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11" style="background: #f1f3f5;"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb11-1"><span class="ex" style="color: null;
+background-color: null;
+font-style: inherit;">python</span> gateway_launcher.py <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">--config</span> gateway_config.yaml</span></code></pre></div></div>
+</div>
+</div>
+</div>
+<hr>
+<p><em>Generated with benchmarking infrastructure from the simple_full_stack_inference project.</em></p>
+
+
+<!-- -->
+
+</section>
+</section>
+
+ ]]></description>
+  <category>llm</category>
+  <category>inference</category>
+  <category>vllm</category>
+  <category>ray-serve</category>
+  <category>moe</category>
+  <category>benchmarking</category>
+  <category>deep-learning</category>
+  <guid>https://vinayhpandya.github.io/posts/blog_first.html</guid>
+  <pubDate>Sat, 25 Apr 2026 07:00:00 GMT</pubDate>
+</item>
+</channel>
+</rss>
