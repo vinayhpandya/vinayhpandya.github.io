@@ -5,8 +5,92 @@
     <lastmod>2026-04-26T06:40:57.403Z</lastmod>
   </url>
   <url>
+    <loc>https://vinayhpandya.github.io/index.html</loc>
+    <lastmod>2026-04-26T06:40:57.440Z</lastmod>
+  </url>
+  <url>
+    <loc>https://vinayhpandya.github.io/personal_workspace_env/lib/python3.14/site-packages/pyzmq-27.1.0.dist-info/licenses/LICENSE.html</loc>
+    <lastmod>2026-04-23T19:45:00.456Z</lastmod>
+  </url>
+  <url>
+    <loc>https://vinayhpandya.github.io/personal_workspace_env/lib/python3.14/site-packages/pandas/tests/indexes/period/test_indexing.html</loc>
+    <lastmod>2026-04-23T19:46:28.575Z</lastmod>
+  </url>
+  <url>
+    <loc>https://vinayhpandya.github.io/personal_workspace_env/lib/python3.14/site-packages/idna-3.13.dist-info/licenses/LICENSE.html</loc>
+    <lastmod>2026-04-23T19:45:03.200Z</lastmod>
+  </url>
+  <url>
+    <loc>https://vinayhpandya.github.io/personal_workspace_env/lib/python3.14/site-packages/numpy-2.4.4.dist-info/licenses/numpy/random/src/splitmix64/LICENSE.html</loc>
+    <lastmod>2026-04-23T19:46:26.358Z</lastmod>
+  </url>
+  <url>
+    <loc>https://vinayhpandya.github.io/personal_workspace_env/lib/python3.14/site-packages/numpy-2.4.4.dist-info/licenses/numpy/random/src/pcg64/LICENSE.html</loc>
+    <lastmod>2026-04-23T19:46:26.358Z</lastmod>
+  </url>
+  <url>
+    <loc>https://vinayhpandya.github.io/personal_workspace_env/lib/python3.14/site-packages/numpy-2.4.4.dist-info/licenses/numpy/random/src/mt19937/LICENSE.html</loc>
+    <lastmod>2026-04-23T19:46:26.357Z</lastmod>
+  </url>
+  <url>
+    <loc>https://vinayhpandya.github.io/personal_workspace_env/lib/python3.14/site-packages/numpy-2.4.4.dist-info/licenses/numpy/fft/pocketfft/LICENSE.html</loc>
+    <lastmod>2026-04-23T19:46:26.357Z</lastmod>
+  </url>
+  <url>
+    <loc>https://vinayhpandya.github.io/personal_workspace_env/lib/python3.14/site-packages/narwhals-2.20.0.dist-info/licenses/LICENSE.html</loc>
+    <lastmod>2026-04-23T19:48:39.348Z</lastmod>
+  </url>
+  <url>
+    <loc>https://vinayhpandya.github.io/personal_workspace_env/lib/python3.14/site-packages/soupsieve-2.8.3.dist-info/licenses/LICENSE.html</loc>
+    <lastmod>2026-04-23T19:44:59.371Z</lastmod>
+  </url>
+  <url>
+    <loc>https://vinayhpandya.github.io/personal_workspace_env/lib/python3.14/site-packages/cffi/recompiler.html</loc>
+    <lastmod>2026-04-23T19:45:08.102Z</lastmod>
+  </url>
+  <url>
     <loc>https://vinayhpandya.github.io/posts/blog_second.html</loc>
     <lastmod>2026-04-26T06:46:17.504Z</lastmod>
+  </url>
+  <url>
+    <loc>https://vinayhpandya.github.io/posts/blog_first.html</loc>
+    <lastmod>2026-04-26T06:46:34.760Z</lastmod>
+  </url>
+  <url>
+    <loc>https://vinayhpandya.github.io/personal_workspace_env/lib/python3.14/site-packages/httpcore-1.0.9.dist-info/licenses/LICENSE.html</loc>
+    <lastmod>2026-04-23T19:45:07.919Z</lastmod>
+  </url>
+  <url>
+    <loc>https://vinayhpandya.github.io/personal_workspace_env/lib/python3.14/site-packages/numpy/random/LICENSE.html</loc>
+    <lastmod>2026-04-23T19:46:26.323Z</lastmod>
+  </url>
+  <url>
+    <loc>https://vinayhpandya.github.io/personal_workspace_env/lib/python3.14/site-packages/httpx-0.28.1.dist-info/licenses/LICENSE.html</loc>
+    <lastmod>2026-04-23T19:45:09.503Z</lastmod>
+  </url>
+  <url>
+    <loc>https://vinayhpandya.github.io/personal_workspace_env/lib/python3.14/site-packages/numpy-2.4.4.dist-info/licenses/numpy/random/LICENSE.html</loc>
+    <lastmod>2026-04-23T19:46:26.357Z</lastmod>
+  </url>
+  <url>
+    <loc>https://vinayhpandya.github.io/personal_workspace_env/lib/python3.14/site-packages/numpy-2.4.4.dist-info/licenses/numpy/random/src/sfc64/LICENSE.html</loc>
+    <lastmod>2026-04-23T19:46:26.357Z</lastmod>
+  </url>
+  <url>
+    <loc>https://vinayhpandya.github.io/personal_workspace_env/lib/python3.14/site-packages/numpy-2.4.4.dist-info/licenses/numpy/random/src/philox/LICENSE.html</loc>
+    <lastmod>2026-04-23T19:46:26.358Z</lastmod>
+  </url>
+  <url>
+    <loc>https://vinayhpandya.github.io/personal_workspace_env/lib/python3.14/site-packages/numpy-2.4.4.dist-info/licenses/numpy/random/src/distributions/LICENSE.html</loc>
+    <lastmod>2026-04-23T19:46:26.359Z</lastmod>
+  </url>
+  <url>
+    <loc>https://vinayhpandya.github.io/personal_workspace_env/lib/python3.14/site-packages/pandas/tests/indexes/period/test_constructors.html</loc>
+    <lastmod>2026-04-23T19:46:28.574Z</lastmod>
+  </url>
+  <url>
+    <loc>https://vinayhpandya.github.io/personal_workspace_env/lib/python3.14/site-packages/pandas/tests/indexes/datetimes/test_indexing.html</loc>
+    <lastmod>2026-04-23T19:46:28.586Z</lastmod>
   </url>
   <url>
     <loc>https://vinayhpandya.github.io/projects.html</loc>
@@ -15,13 +99,5 @@
   <url>
     <loc>https://vinayhpandya.github.io/experience.html</loc>
     <lastmod>2026-02-17T05:09:42.390Z</lastmod>
-  </url>
-  <url>
-    <loc>https://vinayhpandya.github.io/index.html</loc>
-    <lastmod>2026-04-26T06:40:57.440Z</lastmod>
-  </url>
-  <url>
-    <loc>https://vinayhpandya.github.io/posts/blog_first.html</loc>
-    <lastmod>2026-04-26T06:46:34.760Z</lastmod>
   </url>
 </urlset>
