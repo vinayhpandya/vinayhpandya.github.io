@@ -60,18 +60,7 @@ Infrastructure choices matter as much as model selection. The same MoE model sho
 
 Our inference platform consists of multiple layers, each serving a specific purpose:
 
-```{mermaid}
-%%| fig-cap: "Full Stack LLM Inference Architecture"
-flowchart TB
-    Client[Client] --> Nginx[Nginx Load Balancer<br/>Port 80]
-    Nginx --> Agent[LangGraph Agent<br/>Port 8090]
-    Nginx --> Gateway[API Gateway<br/>Port 8080]
-    Agent --> Gateway
-    Gateway --> Modal[Modal vLLM/SGLang<br/>TinyLlama-1.1B]
-    Gateway --> Anyscale[Anyscale Ray Serve<br/>Qwen/DeepSeek]
-    Gateway --> Prometheus[Prometheus<br/>Port 9090]
-    Prometheus --> Grafana[Grafana<br/>Port 3000]
-```
+![Full Stack LLM Inference Architecture](../images/architecture.png){#fig-architecture fig-alt="Architecture diagram showing the full stack LLM inference pipeline with Nginx, LangGraph Agent, API Gateway, and various inference backends"}
 
 **Layer Responsibilities:**
 
@@ -81,12 +70,13 @@ flowchart TB
 | Agent Layer | LangGraph | ReAct loop with tool calling (web search, calculator) |
 | API Gateway | FastAPI | Request routing, backend selection, metrics |
 | Inference | vLLM + Ray Serve | High-throughput model serving |
+| Inference | Anyscale + P/D Moe | For Deepseek MOE model and disaggregated Prefill |
 | Monitoring | Prometheus + Grafana | Real-time metrics and alerting |
 
 ### Why This Architecture?
 
 1. **Nginx handles SSE complexity** - Streaming responses require careful timeout configuration
-2. **Gateway enables A/B testing** - Route traffic between backends without client changes
+2. **Gateway enables multiple routes** - Route traffic between backends without client changes (Clients can choose their own config)
 3. **Monitoring is essential** - You can't optimize what you don't measure
 
 ## Experiment Methodology
@@ -248,6 +238,8 @@ fig.show()
 3. **Predictable Latency:** Easy to set SLAs with stable p90 metrics
 
 ## Experiment 2: DeepSeek MoE with Disaggregated Prefill {#sec-deepseek-disagg}
+
+![Disaggregated Prefill-decode](../images/PD.png){#fig-architecture fig-alt="Architecture diagram showing how disaggregated prefill decode works with NIXL connector"}
 
 ### What is Disaggregated Prefill?
 

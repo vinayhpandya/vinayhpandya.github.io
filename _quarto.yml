@@ -33,3 +33,5 @@ format:
       dark: darkly
     css: styles.css
     toc: true
+    mermaid:
+      theme: default

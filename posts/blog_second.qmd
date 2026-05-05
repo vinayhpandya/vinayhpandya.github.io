@@ -12,7 +12,7 @@ highlight-style: github
 code-fold: true
 code-tools: true
 execute:
-  eval: false
+  eval: true
   warning: false
   message: false
 ---
@@ -32,9 +32,9 @@ import plotly.io as pio
 pio.templates.default = "plotly_white"
 
 # Load all result CSVs
-qwen_results = pd.read_csv("results/qwen_vllm_model_sharegpt_concurrency_20260411_131143.csv")
-deepseek_disagg = pd.read_csv("results/deepseek_sharegpt_concurrency_20260411_132403.csv")
-modal_lmcache = pd.read_csv("results/modal_vllm_lmcache_sharegpt_concurrency_20260408_141225.csv")
+qwen_results = pd.read_csv("../results/qwen_vllm_model_sharegpt_concurrency_20260411_131143.csv")
+deepseek_disagg = pd.read_csv("../results/deepseek_sharegpt_concurrency_20260411_132403.csv")
+modal_lmcache = pd.read_csv("../results/modal_vllm_lmcache_sharegpt_concurrency_20260408_141225.csv")
 
 # Note: Add path for non-disaggregated DeepSeek results when available
 ```
@@ -56,18 +56,7 @@ The finding that surprised me most: the same DeepSeek model showed a 13x through
 
 ### The Full Stack
 
-```{mermaid}
-%%| fig-cap: "Full Stack LLM Inference Architecture"
-flowchart TB
-    Client[Client] --> Nginx[Nginx Load Balancer<br/>Port 80]
-    Nginx --> Agent[LangGraph Agent<br/>Port 8090]
-    Nginx --> Gateway[API Gateway<br/>Port 8080]
-    Agent --> Gateway
-    Gateway --> Modal[Modal vLLM/SGLang<br/>TinyLlama-1.1B]
-    Gateway --> Anyscale[Anyscale Ray Serve<br/>Qwen/DeepSeek]
-    Gateway --> Prometheus[Prometheus<br/>Port 9090]
-    Prometheus --> Grafana[Grafana<br/>Port 3000]
-```
+![Full Stack LLM Inference Architecture](../images/architecture.png){#fig-architecture fig-alt="Architecture diagram showing the full stack LLM inference pipeline with Nginx, LangGraph Agent, API Gateway, and various inference backends"}
 
 **Layer Responsibilities:**
 
@@ -113,16 +102,18 @@ fig = go.Figure(data=[go.Table(
         values=['<b>Phase</b>', '<b>Name</b>', '<b>Description</b>', '<b>Purpose</b>'],
         fill_color='#2C3E50',
         font=dict(color='white', size=12),
-        align='left'
+        align='left',
+        height=35
     ),
     cells=dict(
         values=[phases[col] for col in phases.columns],
-        fill_color='#F8F9FA',
+        fill_color=[['#F8F9FA', '#FFFFFF'] * 2],
         align='left',
-        height=30
+        height=32,
+        font=dict(size=11)
     )
 )])
-fig.update_layout(margin=dict(l=0, r=0, t=0, b=0), height=200)
+fig.update_layout(margin=dict(l=0, r=0, t=10, b=10), height=180)
 fig.show()
 ```
 
@@ -165,42 +156,47 @@ qwen_data = qwen_results[qwen_results['concurrency'] > 0].copy()
 fig = make_subplots(
     rows=2, cols=2,
     subplot_titles=(
-        'TTFT by Concurrency',
-        'Throughput by Concurrency',
-        'Total Latency by Concurrency',
-        'Success Rate'
+        '<b>TTFT (Time to First Token)</b>',
+        '<b>Throughput</b>',
+        '<b>End-to-End Latency</b>',
+        '<b>Success Rate</b>'
     ),
-    vertical_spacing=0.15
+    vertical_spacing=0.18,
+    horizontal_spacing=0.12
 )
 
 # TTFT
 fig.add_trace(
     go.Scatter(x=qwen_data['concurrency'], y=qwen_data['ttft_p50_ms'],
-               mode='lines+markers', name='TTFT p50', line=dict(color='#3498DB')),
+               mode='lines+markers', name='p50', line=dict(color='#3498DB', width=2),
+               marker=dict(size=8), legendgroup='ttft', legendgrouptitle_text='TTFT'),
     row=1, col=1
 )
 fig.add_trace(
     go.Scatter(x=qwen_data['concurrency'], y=qwen_data['ttft_p90_ms'],
-               mode='lines+markers', name='TTFT p90', line=dict(color='#E74C3C', dash='dash')),
+               mode='lines+markers', name='p90', line=dict(color='#E74C3C', width=2, dash='dash'),
+               marker=dict(size=8), legendgroup='ttft'),
     row=1, col=1
 )
 
 # Throughput
 fig.add_trace(
     go.Bar(x=qwen_data['concurrency'], y=qwen_data['throughput_tokens_per_sec'],
-           name='Throughput', marker_color='#27AE60'),
+           name='Tokens/sec', marker_color='#27AE60', showlegend=False),
     row=1, col=2
 )
 
 # Total Latency
 fig.add_trace(
-    go.Scatter(x=qwen_data['concurrency'], y=qwen_data['total_latency_p50_ms'],
-               mode='lines+markers', name='Latency p50', line=dict(color='#9B59B6')),
+    go.Scatter(x=qwen_data['concurrency'], y=qwen_data['latency_p50_ms'],
+               mode='lines+markers', name='p50', line=dict(color='#9B59B6', width=2),
+               marker=dict(size=8), legendgroup='latency', legendgrouptitle_text='Latency'),
     row=2, col=1
 )
 fig.add_trace(
-    go.Scatter(x=qwen_data['concurrency'], y=qwen_data['total_latency_p90_ms'],
-               mode='lines+markers', name='Latency p90', line=dict(color='#E67E22', dash='dash')),
+    go.Scatter(x=qwen_data['concurrency'], y=qwen_data['latency_p90_ms'],
+               mode='lines+markers', name='p90', line=dict(color='#E67E22', width=2, dash='dash'),
+               marker=dict(size=8), legendgroup='latency'),
     row=2, col=1
 )
 
@@ -208,17 +204,28 @@ fig.add_trace(
 success_rate = 100 - qwen_data['error_rate_%']
 fig.add_trace(
     go.Bar(x=qwen_data['concurrency'], y=success_rate,
-           name='Success %', marker_color='#1ABC9C'),
+           name='Success %', marker_color='#1ABC9C', showlegend=False),
     row=2, col=2
 )
 
-fig.update_layout(height=600, showlegend=True, title_text="Qwen2.5-7B Performance Metrics")
-fig.update_xaxes(title_text="Concurrency", row=2, col=1)
-fig.update_xaxes(title_text="Concurrency", row=2, col=2)
-fig.update_yaxes(title_text="ms", row=1, col=1)
-fig.update_yaxes(title_text="tokens/sec", row=1, col=2)
-fig.update_yaxes(title_text="ms", row=2, col=1)
-fig.update_yaxes(title_text="%", row=2, col=2)
+fig.update_layout(
+    height=550,
+    showlegend=True,
+    legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='center', x=0.5),
+    margin=dict(t=80, b=60, l=60, r=40),
+    font=dict(size=11)
+)
+
+# Update all axes
+fig.update_xaxes(title_text="Concurrency", row=1, col=1, tickmode='array', tickvals=qwen_data['concurrency'])
+fig.update_xaxes(title_text="Concurrency", row=1, col=2, tickmode='array', tickvals=qwen_data['concurrency'])
+fig.update_xaxes(title_text="Concurrency", row=2, col=1, tickmode='array', tickvals=qwen_data['concurrency'])
+fig.update_xaxes(title_text="Concurrency", row=2, col=2, tickmode='array', tickvals=qwen_data['concurrency'])
+fig.update_yaxes(title_text="Milliseconds", row=1, col=1)
+fig.update_yaxes(title_text="Tokens/sec", row=1, col=2)
+fig.update_yaxes(title_text="Milliseconds", row=2, col=1)
+fig.update_yaxes(title_text="Percent", row=2, col=2, range=[0, 105])
+
 fig.show()
 ```
 
@@ -239,6 +246,8 @@ Its tool-calling reliability is also notably good, which matters for the agent l
 
 ## Experiment 2: DeepSeek MoE with Disaggregated Prefill {#sec-deepseek-disagg}
 
+![Disaggregated Prefill-decode](../images/PD.png){#fig-architecture fig-alt="Architecture diagram showing how disaggregated prefill decode works with NIXL connector"}
+
 ### What is Disaggregated Prefill?
 
 LLM inference has two distinct phases:
@@ -249,6 +258,7 @@ LLM inference has two distinct phases:
 These phases have very different resource profiles. Disaggregated prefill separates them onto different workers so each can be tuned independently. For MoE models, this matters more than usual — expert routing during prefill adds overhead that gets in the way of efficient decoding if both phases share the same worker.
 
 ```{mermaid}
+%%| eval: true
 %%| fig-cap: "Disaggregated Prefill Architecture"
 flowchart LR
     Input[Input Tokens] --> Prefill[Prefill Workers<br/>Compute Optimized]
@@ -274,25 +284,31 @@ ds_data = deepseek_disagg[deepseek_disagg['concurrency'] > 0].copy()
 
 fig = make_subplots(
     rows=1, cols=2,
-    subplot_titles=('Throughput Comparison', 'TTFT Comparison')
+    subplot_titles=('<b>Throughput</b>', '<b>Time to First Token</b>'),
+    horizontal_spacing=0.15
 )
 
 fig.add_trace(
     go.Bar(x=ds_data['concurrency'], y=ds_data['throughput_tokens_per_sec'],
-           name='DeepSeek (Disagg)', marker_color='#E74C3C'),
+           name='Throughput', marker_color='#E74C3C', showlegend=False),
     row=1, col=1
 )
 
 fig.add_trace(
     go.Scatter(x=ds_data['concurrency'], y=ds_data['ttft_p50_ms'],
-               mode='lines+markers', name='TTFT p50', line=dict(color='#3498DB')),
+               mode='lines+markers', name='TTFT p50',
+               line=dict(color='#3498DB', width=2), marker=dict(size=8), showlegend=False),
     row=1, col=2
 )
 
-fig.update_layout(height=400, title_text="DeepSeek-V2-Lite with Disaggregated Prefill")
-fig.update_xaxes(title_text="Concurrency")
-fig.update_yaxes(title_text="tokens/sec", row=1, col=1)
-fig.update_yaxes(title_text="ms", row=1, col=2)
+fig.update_layout(
+    height=350,
+    margin=dict(t=60, b=60, l=60, r=40),
+    font=dict(size=11)
+)
+fig.update_xaxes(title_text="Concurrency", tickmode='array', tickvals=ds_data['concurrency'])
+fig.update_yaxes(title_text="Tokens/sec", row=1, col=1)
+fig.update_yaxes(title_text="Milliseconds", row=1, col=2)
 fig.show()
 ```
 
@@ -389,23 +405,33 @@ This is the same model, same hardware, different configuration. The 13x throughp
 
 modal_data = modal_lmcache[modal_lmcache['concurrency'] > 0].copy()
 
-fig = make_subplots(rows=1, cols=2,
-                    subplot_titles=('Throughput', 'TTFT'))
+fig = make_subplots(
+    rows=1, cols=2,
+    subplot_titles=('<b>Throughput</b>', '<b>Time to First Token</b>'),
+    horizontal_spacing=0.15
+)
 
 fig.add_trace(
     go.Bar(x=modal_data['concurrency'], y=modal_data['throughput_tokens_per_sec'],
-           marker_color='#9B59B6'),
+           marker_color='#9B59B6', showlegend=False),
     row=1, col=1
 )
 
 fig.add_trace(
     go.Scatter(x=modal_data['concurrency'], y=modal_data['ttft_p50_ms'],
-               mode='lines+markers', line=dict(color='#E67E22')),
+               mode='lines+markers', line=dict(color='#E67E22', width=2),
+               marker=dict(size=8), showlegend=False),
     row=1, col=2
 )
 
-fig.update_layout(height=350, title_text="Modal + LMCache Performance")
-fig.update_xaxes(title_text="Concurrency")
+fig.update_layout(
+    height=350,
+    margin=dict(t=60, b=60, l=60, r=40),
+    font=dict(size=11)
+)
+fig.update_xaxes(title_text="Concurrency", tickmode='array', tickvals=modal_data['concurrency'])
+fig.update_yaxes(title_text="Tokens/sec", row=1, col=1)
+fig.update_yaxes(title_text="Milliseconds", row=1, col=2)
 fig.show()
 ```
 
@@ -430,7 +456,7 @@ That said, scale-to-zero is a meaningful cost advantage if your workload is burs
 #| fig-cap: "Complete Model Comparison"
 
 comparison = pd.DataFrame({
-    'Model': ['Qwen2.5-7B', 'DeepSeek (Disagg)', 'DeepSeek (No Disagg)', 'LLaMA+LMCache'],
+    'Model': ['Qwen2.5', 'DeepSeek-p/D', 'DeepSeek', 'LMCache'],
     'Throughput': [37, 85, 6.6, 26],
     'TTFT_p50': [408, 406, 5028, 1048],
     'Max_RPS': [10.0, 10.0, 2.0, 1.0],
@@ -439,25 +465,42 @@ comparison = pd.DataFrame({
 
 fig = make_subplots(
     rows=2, cols=2,
-    subplot_titles=('Peak Throughput (tok/s)', 'TTFT p50 (ms)',
-                    'Max Stable RPS', 'Success Rate (%)'),
-    vertical_spacing=0.15
+    subplot_titles=(
+        '<b>Peak Throughput</b>',
+        '<b>TTFT p50</b>',
+        '<b>Max Stable RPS</b>',
+        '<b>Success Rate</b>'
+    ),
+    vertical_spacing=0.20,
+    horizontal_spacing=0.12
 )
 
-colors = ['#3498DB', '#E74C3C', '#95A5A6', '#9B59B6']
+colors = ['#3498DB', '#27AE60', '#E74C3C', '#9B59B6']
 
 fig.add_trace(go.Bar(x=comparison['Model'], y=comparison['Throughput'],
-                     marker_color=colors), row=1, col=1)
+                     marker_color=colors, showlegend=False,
+                     text=comparison['Throughput'], textposition='outside'), row=1, col=1)
 fig.add_trace(go.Bar(x=comparison['Model'], y=comparison['TTFT_p50'],
-                     marker_color=colors), row=1, col=2)
+                     marker_color=colors, showlegend=False,
+                     text=comparison['TTFT_p50'], textposition='outside'), row=1, col=2)
 fig.add_trace(go.Bar(x=comparison['Model'], y=comparison['Max_RPS'],
-                     marker_color=colors), row=2, col=1)
+                     marker_color=colors, showlegend=False,
+                     text=comparison['Max_RPS'], textposition='outside'), row=2, col=1)
 fig.add_trace(go.Bar(x=comparison['Model'], y=comparison['Success_Rate'],
-                     marker_color=colors), row=2, col=2)
+                     marker_color=colors, showlegend=False,
+                     text=comparison['Success_Rate'].apply(lambda x: f'{x}%'), textposition='outside'), row=2, col=2)
 
-fig.update_layout(height=600, showlegend=False,
-                  title_text="Model Performance Comparison")
-fig.update_xaxes(tickangle=45)
+fig.update_layout(
+    height=550,
+    showlegend=False,
+    margin=dict(t=60, b=80, l=60, r=40),
+    font=dict(size=11)
+)
+fig.update_xaxes(tickangle=0)
+fig.update_yaxes(title_text="Tokens/sec", row=1, col=1)
+fig.update_yaxes(title_text="Milliseconds", row=1, col=2)
+fig.update_yaxes(title_text="Requests/sec", row=2, col=1)
+fig.update_yaxes(title_text="Percent", row=2, col=2, range=[0, 110])
 fig.show()
 ```
 
@@ -476,6 +519,7 @@ fig.show()
 ### Decision Matrix
 
 ```{mermaid}
+%%| eval: true
 %%| fig-cap: "Choosing Your Inference Stack"
 flowchart TD
     Start[What's your priority?] --> Cost{Cost Sensitive?}
