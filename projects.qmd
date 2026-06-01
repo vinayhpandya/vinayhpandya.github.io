@@ -11,7 +11,7 @@ A Python library for generating and calculating random graphs efficiently on App
 
 *Technologies: Python, MLX, Metal, Nanobind, Poetry*
 
-[View on GitHub](https://github.com/vinaypandya){.btn .btn-outline-primary}
+[View documentation](https://vinayhpandya.github.io/mlx_cluster){.btn .btn-outline-primary}
 
 
 ## Malware Detection from Opcode Sequences (Master's Thesis)
