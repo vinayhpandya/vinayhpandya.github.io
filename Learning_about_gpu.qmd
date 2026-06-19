@@ -1,0 +1,69 @@
+---
+title: "Building a Production-Grade LLM Inference Stack: Benchmarking vLLM, Ray Serve, and MoE Models"
+author: 
+ - "Vinay Pandya"
+date: "2026-06-18"
+categories: [Notes, GPU, LLM, kubernetes, moe, benchmarking, deep-learning]
+toc: true
+toc-depth: 3
+number-sections: true
+highlight-style: github
+code-fold: true
+code-tools: true
+execute:
+  eval: true
+  warning: false
+  message: false
+---
+# Introduction
+This part is mainly for my own understanding of GPU topics and topics which I come across. This is in no way shape or form complete or comprehensive list of topics for GPU optimization techniques and theories
+
+## OS, Docker and kubernetes for GPU
+Even with high end gpus, performance can be bottlenecked by OS, CPU, memory. The fastest gpu is only as good as the data feeding it. 
+
+### CPU and operating system settings
+For operating system, an important parameter is swapiness, this determines if OS will pull the pages from RAM to slower hard drive based swap space. Keeping `vm.swapiness=0` prevents swapping to take place and keeps the data in RAM (until its full of course). 
+
+Cuda driver interfaces with the actual device and the cuda driver interacts with the GPU to enable its features
+
+```{mermaid}
+%%| eval: true
+%%| fig-cap: "Cuda Toolkit and Cuda driver"
+flowchart LR
+    Toolkit["Cuda Toolkit (runtime, libararies)"] --> Driver["Cuda Driver (libcuda.so)"]
+    Driver["Cuda Driver (libcuda.so)"] --> Kernel["Kernel mode nvidia.ko"]
+    Kernel --> GPU
+```
+
+GPU programming model is compatible across different generations of hardware. This allows JIT compilation for GPUs so that their code can run on the newer hardware. 
+
+![Cuda compile architecture](/images/PTX-Image.png){#fig-architecture fig-alt="Cuda compile time architecture (Intermediate)"}
+When compiling cuda code, you produce CUBIN and PTX
+Now PTX is just an intermediate representation which can be used by CUDA to compile (JIT) older programs to the 
+newer GPU. CUBIN is the architecture level SASS (Streaming assembler) which is needed for a specific architecture you are compiling for today.
+
+CUBIN is fast to load but locked for specific GPU, whereas PTX code is forward compatible. A FAT Binary or Fatbin just bundles both of them together and you need to ship both for it to be compatible.
+
+### Frameworks
+Many python based frameworks like pytorch and keras are build on top of CUDA. 
+The PyTorch compiler stack consists of TorchDynamo, AOT Autograd, and
+a backend like TorchInductor or Accelerated Linear Algebra (XLA), which
+automatically capture and optimize your models. TorchInductor is the most
+common backend, and it uses OpenAI’s Triton under the hood. 
+
+![Pytorch compilation](/images/pytorch.png){fig-architecture fig-alt="Pytorch compilation for cuda"}
+
+While performing matrix multiplications, PyTorch delegates these tasks to libraries 
+such as cuBLAS. cuBLAS is part of the CUDA Toolkit and optimized for GPU execution. Behind the 
+scenes, PyTorch ensures that operations like forward and backward passes are executed using 
+low-level, optimized CUDA functions and libraries.
+
+## CPU affinity and NUMA (Non unified memory architecture)
+In many cases, GPU sits idle because either OS is scheduled poorly or CPU can't feed the data fast
+enough to GPU. Some of the optimizations include setting CPU affinity to avoid cross numa node traffic.
+
+
+
+
+
+
