@@ -363,7 +363,14 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   <li><a href="#gpu-driver-and-runtime-optimization" id="toc-gpu-driver-and-runtime-optimization" class="nav-link" data-scroll-target="#gpu-driver-and-runtime-optimization"><span class="header-section-number">1.3</span> GPU Driver and runtime optimization</a>
   <ul class="collapse">
   <li><a href="#mps-multi-process-service" id="toc-mps-multi-process-service" class="nav-link" data-scroll-target="#mps-multi-process-service"><span class="header-section-number">1.3.1</span> MPS (Multi Process Service)</a></li>
+  <li><a href="#mig-multi-instance-gpu" id="toc-mig-multi-instance-gpu" class="nav-link" data-scroll-target="#mig-multi-instance-gpu"><span class="header-section-number">1.3.2</span> MIG (Multi instance GPU)</a></li>
+  <li><a href="#oom-out-of-memory-subscription-gpu" id="toc-oom-out-of-memory-subscription-gpu" class="nav-link" data-scroll-target="#oom-out-of-memory-subscription-gpu"><span class="header-section-number">1.3.3</span> OOM (Out of Memory Subscription) GPU</a></li>
   </ul></li>
+  <li><a href="#kubernetes-and-topology-manager" id="toc-kubernetes-and-topology-manager" class="nav-link" data-scroll-target="#kubernetes-and-topology-manager"><span class="header-section-number">1.4</span> Kubernetes and topology manager</a>
+  <ul class="collapse">
+  <li><a href="#topology-manager" id="toc-topology-manager" class="nav-link" data-scroll-target="#topology-manager"><span class="header-section-number">1.4.1</span> Topology manager</a></li>
+  </ul></li>
+  <li><a href="#key-takeaways" id="toc-key-takeaways" class="nav-link" data-scroll-target="#key-takeaways"><span class="header-section-number">1.5</span> Key Takeaways</a></li>
   </ul></li>
   </ul>
 </nav>
@@ -487,12 +494,58 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <p>Keep GPU running as initializing a GPU can incur additional overhead. <code>nvidia-persistenced</code> keeps driver loaded and running even when no application is using the GPU (Higher power draw)</p>
 <section id="mps-multi-process-service" class="level3" data-number="1.3.1">
 <h3 data-number="1.3.1" class="anchored" data-anchor-id="mps-multi-process-service"><span class="header-section-number">1.3.1</span> MPS (Multi Process Service)</h3>
-<p>When multiple processes share one GPU, the scheduler time-slices between them—running one process’s kernel, then another’s. With short kernels and idle gaps in between, the GPU wastes time on “ping-pong” context switches and underutilizes its resources. NVIDIA’s MPS lets multiple processes run on the GPU concurrently instead of strictly time-slicing. It merges their contexts into a single scheduler context, so the GPU can execute kernels from different processes simultaneously whenever resources (SMs, Tensor Cores, etc.) are free—avoiding the cost of switching and idling between processes. When is it useful? Not so much for training, where you typically run one process per GPU. But it’s a game changer for running many inference jobs on one large GPU. For example, four inference jobs on a 40 GB GPU, each using 5–10 GB and only ~30% of compute: by default each gets a time-slice, so only one runs at a time, leaving the GPU ~70% idle on average. MPS lets them run concurrently and reclaim that idle capacity.</p>
+<p>When multiple processes share one GPU, the scheduler time-slices between them—running one process’s kernel, then another’s. With short kernels and idle gaps in between, the GPU wastes time on “ping-pong” context switches and underutilizes its resources. NVIDIA’s MPS lets multiple processes run on the GPU concurrently instead of strictly time-slicing. It merges their contexts into a single scheduler context, so the GPU can execute kernels from different processes simultaneously whenever resources (SMs, Tensor Cores, etc.) are free—avoiding the cost of switching and idling between processes.</p>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="./images/time_slicing.png" class="img-fluid figure-img"></p>
+<figcaption>Time slicing with MPS</figcaption>
+</figure>
+</div>
+<p>When is it useful? Not so much for training, where you typically run one process per GPU. But it’s a game changer for running many inference jobs on one large GPU. For example, four inference jobs on a 40 GB GPU, each using 5–10 GB and only ~30% of compute: by default each gets a time-slice, so only one runs at a time, leaving the GPU ~70% idle on average. MPS lets them run concurrently and reclaim that idle capacity.</p>
+<p>Earlier we covered what MPS does at a high level: it lets multiple processes run kernels on the GPU concurrently instead of strictly time-slicing, so they can overlap and fill idle capacity. This phrase is about a specific control MPS gives you on top of that—a way to cap how much of the GPU each process is allowed to grab. The problem it solves: plain MPS lets processes run concurrently, but it doesn’t stop one greedy process from hogging the compute. If one process launches enough kernels to saturate all the SMs, the others get starved—they’re sharing, but not fairly. Concurrency alone doesn’t guarantee anyone a slice. The active thread percentage is the knob that fixes this. The GPU’s compute capacity lives in its streaming multiprocessors (SMs), and “active thread percentage” sets the maximum fraction of those SMs a given process is allowed to use at once. You set it per client (per process) via an environment variable, CUDA_MPS_ACTIVE_THREAD_PERCENTAGE. So if you have four inference jobs sharing one GPU and you want them to share evenly, you give each one 25%. Now no single job can occupy more than a quarter of the SMs, and the four coexist without trampling each other.</p>
+</section>
+<section id="mig-multi-instance-gpu" class="level3" data-number="1.3.2">
+<h3 data-number="1.3.2" class="anchored" data-anchor-id="mig-multi-instance-gpu"><span class="header-section-number">1.3.2</span> MIG (Multi instance GPU)</h3>
+<p>Its nvidia’s way of physically partitioning a single GPU into smaller fully isolated GPU instances each with its own hardware, caches and copy engines. MIG carves out each GPU such that one instance cannot accidently touch other instances resources, which gives predictable performance and noisy neighbor solution A profile like MIG 3g.90gb means 3 compute slices (“3g”) and 90 GB of memory. Under the hood, NVIDIA splits a GPU into 7 compute slices and 8 memory slices—that asymmetry is why you see fractions over 7 and over 8 in the table. Here’s what each column means:</p>
+<ol type="1">
+<li>Profile name — the partition recipe: {N}g is how many of the 7 compute slices it gets, and .{X}gb is the memory it gets. The B200 has 180 GB total, so the fractions map directly: 1/8 of 180 ≈ 23 GB, 2/8 = 45 GB, 4/8 = 90 GB, full = 180 GB.</li>
+<li>Fraction of memory — share of the GPU’s memory (HBM), divided into 8 units. So 1/8, 2/8, 4/8, up to full.</li>
+<li>Fraction of SMs — share of the streaming multiprocessors (the actual compute cores), divided into 7. So 1/7, 2/7, 3/7, 4/7, up to full. L2 cache size — share of the on-chip L2 cache, which tracks the memory fraction (the cache is tied to the memory partition). Copy engines — dedicated DMA engines for moving data in and out of the instance; bigger instances get more (2 → 16).</li>
+</ol>
+</section>
+<section id="oom-out-of-memory-subscription-gpu" class="level3" data-number="1.3.3">
+<h3 data-number="1.3.3" class="anchored" data-anchor-id="oom-out-of-memory-subscription-gpu"><span class="header-section-number">1.3.3</span> OOM (Out of Memory Subscription) GPU</h3>
+<p>GPU does not have something like memory swap like Operating system. If more memory is required, OOM error will occur and the process will crash. Tensorflow by default allocates the entire available memory by default, whereas pytorch only allocates what the application need. The GPU-to-CPU memory offloading can be slow, however CPU memory I/O is slower than GPU high-bandwidth memory (HBM) I/O.</p>
+<p>Normally with CUDA, the CPU and the GPU have separate memory, and you have to manage both yourself: allocate space in CPU RAM, allocate space in GPU memory, and explicitly copy data back and forth (cudaMemcpy) before and after the GPU does its work. It’s fast but tedious and easy to get wrong. Unified Memory hides that split. You allocate one pointer that “just works” on both the CPU and the GPU, and the CUDA runtime figures out where the data actually needs to be at any moment and moves it for you. You write simpler code; the system handles the shuttling. The catch is how it moves the data. Memory is organized into chunks called pages. With on-demand paging, the GPU doesn’t copy everything up front—it waits until a kernel actually touches a page that isn’t currently in GPU memory. At that moment the GPU hits a page fault (essentially “I need this data and don’t have it”), and the Page Migration Engine fetches that page from CPU RAM across the bus (PCIe or NVLink) into GPU memory. The PME is the dedicated hardware that does this migration automatically, and on Hopper/Blackwell it also handles the reverse: when GPU memory fills up, it can evict pages back to CPU RAM. That last part is what lets you “oversubscribe”—work with a dataset bigger than the GPU’s physical memory.</p>
+</section>
+</section>
+<section id="kubernetes-and-topology-manager" class="level2" data-number="1.4">
+<h2 data-number="1.4" class="anchored" data-anchor-id="kubernetes-and-topology-manager"><span class="header-section-number">1.4</span> Kubernetes and topology manager</h2>
+<p>Nvidia Kubernetes GPU operator manages all the installation and lifecycle process for the nvidia software. Kubernetes is however not topology aware and may try to allocate nodes which do have the same NUMA affinity.</p>
+<section id="topology-manager" class="level3" data-number="1.4.1">
+<h3 data-number="1.4.1" class="anchored" data-anchor-id="topology-manager"><span class="header-section-number">1.4.1</span> Topology manager</h3>
+<p>Topology manager is a component of kubelet that manages how resources should be allocated for a particular pod, so that they all come from the same place in the machine. This helps in running workloads by optimizing and exploiting their numa affinity (The same can be done manually by labelling nodes with same GPU so only pods with those same labels get assigned to the labelled nodes). There are different policies using which topology manager assigns resources</p>
+<ol type="1">
+<li>none — the default; no coordination (the old scattered behavior).</li>
+<li>best-effort — try to align everything on one NUMA node, but if it can’t, schedule the pod anyway.</li>
+<li>restricted — try to align; if it can’t satisfy the preferred alignment, refuse to admit the pod (it fails rather than running badly).</li>
+<li>single-numa-node — the strictest; require everything on a single NUMA node or reject the pod.</li>
+</ol>
+</section>
+</section>
+<section id="key-takeaways" class="level2" data-number="1.5">
+<h2 data-number="1.5" class="anchored" data-anchor-id="key-takeaways"><span class="header-section-number">1.5</span> Key Takeaways</h2>
+<ol type="1">
+<li>Data locality is critical -&gt; Use high speed NVMe SSD</li>
+<li>Implement NUMA aware affinity -&gt; Use NUMA affinity and pin processes according to their affinity</li>
+<li>GPU driver and runtime efficieny -&gt; MIG, MPS, Hugepages optimized to avoid OS swapping</li>
+<li>Tune networking stack: Use RDMA and RoCE for gradient and computation</li>
+<li>Orchestration and docker for consistency and best practices -&gt; Use topology manager and mount filesystems</li>
+</ol>
 
 
 <!-- -->
 
-</section>
 </section>
 </section>
 
@@ -1084,7 +1137,53 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb3-124"><a href="#cb3-124" aria-hidden="true" tabindex="-1"></a><span class="fu">### MPS (Multi Process Service)</span></span>
 <span id="cb3-125"><a href="#cb3-125" aria-hidden="true" tabindex="-1"></a>When multiple processes share one GPU, the scheduler time-slices between them—running one process's kernel, then another's. With short kernels and idle gaps in between, the GPU wastes time on "ping-pong" context switches and underutilizes its resources.</span>
 <span id="cb3-126"><a href="#cb3-126" aria-hidden="true" tabindex="-1"></a>NVIDIA's MPS lets multiple processes run on the GPU concurrently instead of strictly time-slicing. It merges their contexts into a single scheduler context, so the GPU can execute kernels from different processes simultaneously whenever resources (SMs, Tensor Cores, etc.) are free—avoiding the cost of switching and idling between processes.</span>
-<span id="cb3-127"><a href="#cb3-127" aria-hidden="true" tabindex="-1"></a>When is it useful? Not so much for training, where you typically run one process per GPU. But it's a game changer for running many inference jobs on one large GPU. For example, four inference jobs on a 40 GB GPU, each using 5–10 GB and only ~30% of compute: by default each gets a time-slice, so only one runs at a time, leaving the GPU ~70% idle on average. MPS lets them run concurrently and reclaim that idle capacity.</span>
+<span id="cb3-127"><a href="#cb3-127" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-128"><a href="#cb3-128" aria-hidden="true" tabindex="-1"></a><span class="al">![Time slicing with MPS](./images/time_slicing.png)</span></span>
+<span id="cb3-129"><a href="#cb3-129" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-130"><a href="#cb3-130" aria-hidden="true" tabindex="-1"></a>When is it useful? Not so much for training, where you typically run one process per GPU. But it's a game changer for running many inference jobs on one large GPU. For example, four inference jobs on a 40 GB GPU, each using 5–10 GB and only ~30% of compute: by default each gets a time-slice, so only one runs at a time, leaving the GPU ~70% idle on average. MPS lets them run concurrently and reclaim that idle capacity.</span>
+<span id="cb3-131"><a href="#cb3-131" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-132"><a href="#cb3-132" aria-hidden="true" tabindex="-1"></a>Earlier we covered what MPS does at a high level: it lets multiple processes run kernels on the GPU concurrently instead of strictly time-slicing, so they can overlap and fill idle capacity. This phrase is about a specific control MPS gives you on top of that—a way to cap how much of the GPU each process is allowed to grab.</span>
+<span id="cb3-133"><a href="#cb3-133" aria-hidden="true" tabindex="-1"></a>The problem it solves: plain MPS lets processes run concurrently, but it doesn't stop one greedy process from hogging the compute. If one process launches enough kernels to saturate all the SMs, the others get starved—they're sharing, but not fairly. Concurrency alone doesn't guarantee anyone a slice.</span>
+<span id="cb3-134"><a href="#cb3-134" aria-hidden="true" tabindex="-1"></a>The active thread percentage is the knob that fixes this. The GPU's compute capacity lives in its streaming multiprocessors (SMs), and "active thread percentage" sets the maximum fraction of those SMs a given process is allowed to use at once. You set it per client (per process) via an environment variable, CUDA_MPS_ACTIVE_THREAD_PERCENTAGE. So if you have four inference jobs sharing one GPU and you want them to share evenly, you give each one 25%. Now no single job can occupy more than a quarter of the SMs, and the four coexist without trampling each other.</span>
+<span id="cb3-135"><a href="#cb3-135" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-136"><a href="#cb3-136" aria-hidden="true" tabindex="-1"></a><span class="fu">### MIG (Multi instance GPU)</span></span>
+<span id="cb3-137"><a href="#cb3-137" aria-hidden="true" tabindex="-1"></a>Its nvidia's way of physically partitioning a single GPU into smaller fully isolated GPU instances each with its own hardware, caches and copy engines. MIG carves out each GPU such that one instance cannot accidently touch other instances resources, which gives predictable performance and noisy neighbor solution</span>
+<span id="cb3-138"><a href="#cb3-138" aria-hidden="true" tabindex="-1"></a>A profile like MIG 3g.90gb means 3 compute slices ("3g") and 90 GB of memory. Under the hood, NVIDIA splits a GPU into 7 compute slices and 8 memory slices—that asymmetry is why you see fractions over 7 and over 8 in the table.</span>
+<span id="cb3-139"><a href="#cb3-139" aria-hidden="true" tabindex="-1"></a>Here's what each column means:</span>
+<span id="cb3-140"><a href="#cb3-140" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-141"><a href="#cb3-141" aria-hidden="true" tabindex="-1"></a><span class="ss">1. </span>Profile name — the partition recipe: {N}g is how many of the 7 compute slices it gets, and .{X}gb is the memory it gets. The B200 has 180 GB total, so the fractions map directly: 1/8 of 180 ≈ 23 GB, 2/8 = 45 GB, 4/8 = 90 GB, full = 180 GB.</span>
+<span id="cb3-142"><a href="#cb3-142" aria-hidden="true" tabindex="-1"></a><span class="ss">2. </span>Fraction of memory — share of the GPU's memory (HBM), divided into 8 units. So 1/8, 2/8, 4/8, up to full.</span>
+<span id="cb3-143"><a href="#cb3-143" aria-hidden="true" tabindex="-1"></a><span class="ss">3. </span>Fraction of SMs — share of the streaming multiprocessors (the actual compute cores), divided into 7. So 1/7, 2/7, 3/7, 4/7, up to full.</span>
+<span id="cb3-144"><a href="#cb3-144" aria-hidden="true" tabindex="-1"></a>L2 cache size — share of the on-chip L2 cache, which tracks the memory fraction (the cache is tied to the memory partition).</span>
+<span id="cb3-145"><a href="#cb3-145" aria-hidden="true" tabindex="-1"></a>Copy engines — dedicated DMA engines for moving data in and out of the instance; bigger instances get more (2 → 16).</span>
+<span id="cb3-146"><a href="#cb3-146" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-147"><a href="#cb3-147" aria-hidden="true" tabindex="-1"></a><span class="fu">### OOM (Out of Memory Subscription) GPU</span></span>
+<span id="cb3-148"><a href="#cb3-148" aria-hidden="true" tabindex="-1"></a>GPU does not have something like memory swap like Operating system. If more memory is required, OOM error will occur and the process will crash. Tensorflow by default allocates the entire available memory by default, whereas pytorch only allocates what the application need.</span>
+<span id="cb3-149"><a href="#cb3-149" aria-hidden="true" tabindex="-1"></a>The GPU-to-CPU memory offloading can be slow, however CPU memory I/O is slower than GPU high-bandwidth memory (HBM) I/O.</span>
+<span id="cb3-150"><a href="#cb3-150" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-151"><a href="#cb3-151" aria-hidden="true" tabindex="-1"></a>Normally with CUDA, the CPU and the GPU have separate memory, and you have to manage both yourself: allocate space in CPU RAM, allocate space in GPU memory, and explicitly copy data back and forth (cudaMemcpy) before and after the GPU does its work. It's fast but tedious and easy to get wrong.</span>
+<span id="cb3-152"><a href="#cb3-152" aria-hidden="true" tabindex="-1"></a>Unified Memory hides that split. You allocate one pointer that "just works" on both the CPU and the GPU, and the CUDA runtime figures out where the data actually needs to be at any moment and moves it for you. You write simpler code; the system handles the shuttling.</span>
+<span id="cb3-153"><a href="#cb3-153" aria-hidden="true" tabindex="-1"></a>The catch is how it moves the data. Memory is organized into chunks called pages. With on-demand paging, the GPU doesn't copy everything up front—it waits until a kernel actually touches a page that isn't currently in GPU memory. At that moment the GPU hits a page fault (essentially "I need this data and don't have it"), and the Page Migration Engine fetches that page from CPU RAM across the bus (PCIe or NVLink) into GPU memory. The PME is the dedicated hardware that does this migration automatically, and on Hopper/Blackwell it also handles the reverse: when GPU memory fills up, it can evict pages back to CPU RAM. That last part is what lets you "oversubscribe"—work with a dataset bigger than the GPU's physical memory.</span>
+<span id="cb3-154"><a href="#cb3-154" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-155"><a href="#cb3-155" aria-hidden="true" tabindex="-1"></a><span class="fu">## Kubernetes and topology manager</span></span>
+<span id="cb3-156"><a href="#cb3-156" aria-hidden="true" tabindex="-1"></a>Nvidia Kubernetes GPU operator manages all the installation and lifecycle process for the nvidia software.</span>
+<span id="cb3-157"><a href="#cb3-157" aria-hidden="true" tabindex="-1"></a>Kubernetes is however not topology aware and may try to allocate nodes which do have the same NUMA affinity.</span>
+<span id="cb3-158"><a href="#cb3-158" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-159"><a href="#cb3-159" aria-hidden="true" tabindex="-1"></a><span class="fu">### Topology manager</span></span>
+<span id="cb3-160"><a href="#cb3-160" aria-hidden="true" tabindex="-1"></a>Topology manager is a component of kubelet that manages how resources should be allocated for a particular pod,</span>
+<span id="cb3-161"><a href="#cb3-161" aria-hidden="true" tabindex="-1"></a>so that they all come from the same place in the machine. This helps in running workloads by optimizing and exploiting their numa affinity (The same can be done manually by labelling nodes with same GPU so only pods with those same labels get assigned to the labelled nodes). There are different policies using which topology manager assigns resources</span>
+<span id="cb3-162"><a href="#cb3-162" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-163"><a href="#cb3-163" aria-hidden="true" tabindex="-1"></a><span class="ss">1. </span>none — the default; no coordination (the old scattered behavior).</span>
+<span id="cb3-164"><a href="#cb3-164" aria-hidden="true" tabindex="-1"></a><span class="ss">2. </span>best-effort — try to align everything on one NUMA node, but if it can't, schedule the pod anyway.</span>
+<span id="cb3-165"><a href="#cb3-165" aria-hidden="true" tabindex="-1"></a><span class="ss">3. </span>restricted — try to align; if it can't satisfy the preferred alignment, refuse to admit the pod (it fails rather than running badly).</span>
+<span id="cb3-166"><a href="#cb3-166" aria-hidden="true" tabindex="-1"></a><span class="ss">4. </span>single-numa-node — the strictest; require everything on a single NUMA node or reject the pod.</span>
+<span id="cb3-167"><a href="#cb3-167" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-168"><a href="#cb3-168" aria-hidden="true" tabindex="-1"></a><span class="fu">## Key Takeaways</span></span>
+<span id="cb3-169"><a href="#cb3-169" aria-hidden="true" tabindex="-1"></a><span class="ss">1. </span>Data locality is critical -&gt; Use high speed NVMe SSD</span>
+<span id="cb3-170"><a href="#cb3-170" aria-hidden="true" tabindex="-1"></a><span class="ss">2. </span>Implement NUMA aware affinity -&gt; Use NUMA affinity and pin processes according to their affinity</span>
+<span id="cb3-171"><a href="#cb3-171" aria-hidden="true" tabindex="-1"></a><span class="ss">3. </span>GPU driver and runtime efficieny -&gt; MIG, MPS, Hugepages optimized to avoid OS swapping</span>
+<span id="cb3-172"><a href="#cb3-172" aria-hidden="true" tabindex="-1"></a><span class="ss">4. </span>Tune networking stack: Use RDMA and RoCE for gradient and computation</span>
+<span id="cb3-173"><a href="#cb3-173" aria-hidden="true" tabindex="-1"></a><span class="ss">5. </span>Orchestration and docker for consistency and best practices -&gt; Use topology manager and mount filesystems</span>
 </code></pre></div><button title="Copy to Clipboard" class="code-copy-button" data-in-quarto-modal=""><i class="bi"></i></button></div>
 </div></div></div></div></div>
 </div> <!-- /content -->
