@@ -2,30 +2,34 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
     <loc>https://vinayhpandya.github.io/blog.html</loc>
-    <lastmod>2026-06-01T06:03:55.974Z</lastmod>
+    <lastmod>2026-04-26T06:40:57.403Z</lastmod>
+  </url>
+  <url>
+    <loc>https://vinayhpandya.github.io/unreleased/Learning_about_gpu.html</loc>
+    <lastmod>2026-06-23T18:55:56.278Z</lastmod>
   </url>
   <url>
     <loc>https://vinayhpandya.github.io/experience.html</loc>
-    <lastmod>2026-02-23T20:01:37.071Z</lastmod>
+    <lastmod>2026-02-17T05:09:42.390Z</lastmod>
   </url>
   <url>
     <loc>https://vinayhpandya.github.io/projects.html</loc>
-    <lastmod>2026-06-01T06:05:47.053Z</lastmod>
+    <lastmod>2026-06-18T20:25:31.854Z</lastmod>
   </url>
   <url>
     <loc>https://vinayhpandya.github.io/posts/blog_second.html</loc>
-    <lastmod>2026-06-01T06:03:56.007Z</lastmod>
-  </url>
-  <url>
-    <loc>https://vinayhpandya.github.io/Learning_about_gpu.html</loc>
-    <lastmod>2026-06-21T05:36:30.918Z</lastmod>
+    <lastmod>2026-05-05T02:12:23.521Z</lastmod>
   </url>
   <url>
     <loc>https://vinayhpandya.github.io/index.html</loc>
-    <lastmod>2026-06-01T06:03:56.007Z</lastmod>
+    <lastmod>2026-04-26T06:40:57.440Z</lastmod>
   </url>
   <url>
-    <loc>https://vinayhpandya.github.io/blog_first.html</loc>
-    <lastmod>2026-06-01T06:03:55.975Z</lastmod>
+    <loc>https://vinayhpandya.github.io/unreleased/chapter_4.html</loc>
+    <lastmod>2026-06-24T02:03:57.594Z</lastmod>
+  </url>
+  <url>
+    <loc>https://vinayhpandya.github.io/unreleased/blog_first.html</loc>
+    <lastmod>2026-05-05T01:45:33.471Z</lastmod>
   </url>
 </urlset>
