@@ -106,7 +106,7 @@ THP -> Can help in reducing the memory overhead by making memory chunks bigger, 
 maps this virtual address to the pyhsical address in the memory. Larger hugepages means TLB has to spend less time
 finding the page. However for inference workloads where data can vary if memory becomes full or near full, compaction takes places which reshuffles memory blocks and can harm the performance. General consensus is to disable THP for inference or us `madvise` to only have THP for certain cases (KV cache or matrices)
 
-![CPU areans and threads](./images/cpu_arenas.png)
+![CPU areans and threads](/images/cpu_arenas.png)
 jemalloc and tcmalloc are smarter replacement allocators that attack exactly these. Every knob in your passage does one of two simple things:
 Give each thread/CPU its own private stash so nobody waits in line. In jemalloc, narenas:8 splits the one pool into eight separate ones (the right side of the picture above). 
 
@@ -123,7 +123,7 @@ Keep GPU running as initializing a GPU can incur additional overhead. `nvidia-pe
 When multiple processes share one GPU, the scheduler time-slices between them—running one process's kernel, then another's. With short kernels and idle gaps in between, the GPU wastes time on "ping-pong" context switches and underutilizes its resources.
 NVIDIA's MPS lets multiple processes run on the GPU concurrently instead of strictly time-slicing. It merges their contexts into a single scheduler context, so the GPU can execute kernels from different processes simultaneously whenever resources (SMs, Tensor Cores, etc.) are free—avoiding the cost of switching and idling between processes.
 
-![Time slicing with MPS](./images/time_slicing.png)
+![Time slicing with MPS](/images/time_slicing.png)
 
 When is it useful? Not so much for training, where you typically run one process per GPU. But it's a game changer for running many inference jobs on one large GPU. For example, four inference jobs on a 40 GB GPU, each using 5–10 GB and only ~30% of compute: by default each gets a time-slice, so only one runs at a time, leaving the GPU ~70% idle on average. MPS lets them run concurrently and reclaim that idle capacity.
 
