@@ -4,7 +4,7 @@
     "href": "blog.html",
     "title": "Blog",
     "section": "",
-    "text": "Building a Production-Grade LLM Inference Stack: Benchmarking vLLM, Ray Serve, and MoE Models\n\n\n\nllm\n\ninference\n\nvllm\n\nray-serve\n\nmoe\n\nbenchmarking\n\ndeep-learning\n\n\n\n\n\n\n\n\n\nApr 25, 2026\n\n\nVinay Pandya, Yiran Xu\n\n\n\n\n\nNo matching items"
+    "text": "Building and Evaluating a Search Engine Over Malware-Classification Papers\n\n\nA capstone project for AI-Powered Search: BM25 to generative retrieval\n\n\n\n\n\n\n\n\nJul 30, 2026\n\n\nVinay Pandya\n\n\n\n\n\n\n\n\n\n\n\n\nBuilding a Production-Grade LLM Inference Stack: Benchmarking vLLM, Ray Serve, and MoE Models\n\n\n\n\n\n\nllm\n\ninference\n\nvllm\n\nray-serve\n\nmoe\n\nbenchmarking\n\ndeep-learning\n\n\n\n\n\n\n\n\n\nApr 25, 2026\n\n\nVinay Pandya, Yiran Xu\n\n\n\n\n\nNo matching items"
   },
   {
     "objectID": "unreleased/Learning_about_gpu.html",
@@ -208,6 +208,41 @@
     "title": "Building a Production-Grade LLM Inference Stack: Benchmarking vLLM, Ray Serve, and MoE Models",
     "section": "13 Appendix: Reproduction",
     "text": "13 Appendix: Reproduction\n\n13.1 Repository\nAll code, deployment scripts, and results are available at:\nhttps://github.com/vinayhpandya/simple_full_stack_inference\n\n\n13.2 Running Load Tests\n# Install dependencies\nuv sync\n\n# Run load test against your endpoint\npython load_test.py \\\n    --endpoint \"https://your-endpoint.com/v1/chat/completions\" \\\n    --model \"qwen2.5-7b-instruct\" \\\n    --dataset sharegpt \\\n    --concurrency-levels 1 2 4 8 16\n\n\n13.3 Deployment Commands\n\nModalAnyscaleLocal Gateway\n\n\nmodal deploy modal_vllm_deploy.py\n\n\nanyscale service deploy anyscale_deepseek_deploy.py\n\n\nuv run simple-ai-gateway\n\n\n\n\nGenerated with benchmarking infrastructure from the simple_full_stack_inference project."
+  },
+  {
+    "objectID": "posts/search_results.html",
+    "href": "posts/search_results.html",
+    "title": "Building and Evaluating a Search Engine Over Malware-Classification Papers",
+    "section": "",
+    "text": "This project builds a search engine over a corpus of arXiv malware-classification papers, implementing and comparing six retrieval methods head-to-head: BM25 → dense (SPECTER2) → hybrid (RRF) → cross-encoder rerank → late-interaction (ColBERT via Qdrant) → generative retrieval (a trained query→semantic-ID model).\nEvery method is evaluated on the same 40-query, LLM-judged relevance-labeled eval set, using the same NDCG@10 / MRR metrics, and benchmarked on the same latency harness. The goal was not just to build each technique, but to honestly report where each one wins, where it loses, and why — including findings that didn’t come out the way theory alone would predict.\nCode: github.com/vinayhpandya/search-algorithms"
+  },
+  {
+    "objectID": "posts/search_results.html#overview",
+    "href": "posts/search_results.html#overview",
+    "title": "Building and Evaluating a Search Engine Over Malware-Classification Papers",
+    "section": "",
+    "text": "This project builds a search engine over a corpus of arXiv malware-classification papers, implementing and comparing six retrieval methods head-to-head: BM25 → dense (SPECTER2) → hybrid (RRF) → cross-encoder rerank → late-interaction (ColBERT via Qdrant) → generative retrieval (a trained query→semantic-ID model).\nEvery method is evaluated on the same 40-query, LLM-judged relevance-labeled eval set, using the same NDCG@10 / MRR metrics, and benchmarked on the same latency harness. The goal was not just to build each technique, but to honestly report where each one wins, where it loses, and why — including findings that didn’t come out the way theory alone would predict.\nCode: github.com/vinayhpandya/search-algorithms"
+  },
+  {
+    "objectID": "posts/search_results.html#corpus-and-setup",
+    "href": "posts/search_results.html#corpus-and-setup",
+    "title": "Building and Evaluating a Search Engine Over Malware-Classification Papers",
+    "section": "Corpus and Setup",
+    "text": "Corpus and Setup\n\nDomain: arXiv papers on malware classification (cs.CR, cs.LG, cs.CV categories), collected via the arxiv client library across 16 search queries, deduplicated\nEnrichment: citation counts from Semantic Scholar (used later as an LTR feature)\nIndex: OpenSearch, single-node local Docker setup — chosen because it supports BM25 and k-NN vector search natively in one engine, letting lexical and semantic search share the same index and fuse without cross-system round trips\nScope decision: abstract-only (no full-text PDFs), to keep the repo small and the project achievable in a weekend — noted as future work"
+  },
+  {
+    "objectID": "posts/search_results.html#methodology-evaluation",
+    "href": "posts/search_results.html#methodology-evaluation",
+    "title": "Building and Evaluating a Search Engine Over Malware-Classification Papers",
+    "section": "Methodology: Evaluation",
+    "text": "Methodology: Evaluation\n\nRelevance labeling\nManually labeling enough query-paper pairs for a meaningful eval set (857 pairs across 40 queries at initial scope, growing further as more methods were added) isn’t realistic by hand in the available time. Instead:\n\nA researcher LLM rates each pair 0/1/2 with a rationale\nA critic LLM reviews the researcher’s rating and either confirms or overrides it — final label = critic’s call\nA human spot-check on a stratified sample (~65 pairs, weighted toward researcher/critic disagreements) validates the LLM labels\n\nThis is standard practice for evaluating relevance judgments at scale (the same logic behind TREC-style IR evaluation and industry search-quality teams checking LLM/crowd-worker judgments) — not a shortcut.\nKnown calibration issue: only ~3% of labeled pairs were rated “not relevant” (0). Because candidate pools are built from real search results (already topically adjacent to the query), the researcher/critic prompts turned out lenient about what counts as irrelevant. This doesn’t invalidate the labels — NDCG@10 still discriminates well since it weights label=2 three times as heavily as label=1 — but it does mean MRR at the standard threshold (label ≥ 1) saturates near 1.0 for every method and carries no signal. Reporting MRR at threshold ≥ 2 (“how often is the very best result found immediately”) restored real discrimination between methods without needing to relabel anything.\n\n\nMetrics\n\nNDCG@10: rewards ranking highly-relevant results near the top; uses the full graded (0/1/2) label\nMRR(≥2): reciprocal rank of the first highly relevant result — the metric that actually discriminates given this corpus’s label distribution\nLatency: mean / p50 / p95 across 40 queries × 5 runs each (first run per query discarded as warmup), local machine, no GPU"
+  },
+  {
+    "objectID": "posts/search_results.html#results-retrieval-quality",
+    "href": "posts/search_results.html#results-retrieval-quality",
+    "title": "Building and Evaluating a Search Engine Over Malware-Classification Papers",
+    "section": "Results: Retrieval Quality",
+    "text": "Results: Retrieval Quality\n\n\n\nMethod\nNDCG@10\nMRR(≥1)\nMRR(≥2)\n\n\n\n\nBM25\n0.9003\n1.0000\n0.5969\n\n\nDense\n0.9026\n1.0000\n0.5763\n\n\nHybrid\n0.9142\n1.0000\n0.7261\n\n\nRerank\n0.9131\n1.0000\n0.7504\n\n\nLate-interaction\n0.9003\n1.0000\n0.6951\n\n\nSemantic ID (generative)\n0.9624\n0.9625\n0.2744\n\n\n\n\nReading the core four methods\nDense underperforms BM25 on MRR(≥2) (0.5763 vs 0.5969) despite near-identical NDCG@10 — SPECTER2 embeddings surface broadly topical neighbors well, but are less precise than exact keyword matching at pinpointing the single best match at rank 1.\nHybrid and rerank both correct for this, each clearly outperforming either input alone on MRR(≥2) — real evidence of fusion and reranking doing genuine work, not just reshuffling noise.\nLate-interaction lands between dense and hybrid (MRR≥2 = 0.6951) — consistent with the theoretical expectation that token-level (MaxSim) matching captures finer-grained relevance than single-vector cosine similarity, without needing full cross-attention.\nRerank is the best quality by both metrics — expected, since a cross-encoder sees the full query and document jointly via cross-attention (strictly more expressive than any similarity-metric-based method here), at the cost of only being feasible on a pre-filtered shortlist, never the whole corpus.\n\n\nThe semantic ID result\nAt face value, the generative retrieval method’s NDCG@10 (0.9624) is the highest of all six methods — but this is a labeling artifact, not a genuine quality win, and the MRR(≥2) column makes that clear (0.2744, by far the lowest of all six).\nThe trained query→semantic-ID model (t5-small, fine-tuned on ~660 synthetic query examples) suffered mode collapse: it predicts the same coarse/fine cluster ([1, 0]) for a large share of unrelated queries, rather than genuinely discriminating between them (see sample predictions below). That cluster happens to be a large, generically-malware-relevant group of papers — so almost any malware-related query retrieves something “somewhat relevant” from it (driving MRR(≥1) and NDCG up), but essentially never the single best paper for a specific query (driving MRR(≥2) down). This is a coherent, honest finding: the model learned to be right about the wrong thing — a shortcut that scores deceptively well on a lenient metric while providing near-zero real retrieval discrimination."
   },
   {
     "objectID": "index.html",
