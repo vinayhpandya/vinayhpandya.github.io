@@ -3,6 +3,7 @@ title: "Building and Evaluating a Search Engine Over Malware-Classification Pape
 subtitle: "A capstone project for AI-Powered Search: BM25 to generative retrieval"
 author: "Vinay Pandya"
 date: today
+categories: [llm, BM25, Opensearch, Semantic Ids, vector search]
 format:
   html:
     toc: true
