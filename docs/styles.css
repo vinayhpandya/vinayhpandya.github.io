@@ -1,0 +1,89 @@
+/* Custom styles for Vinay Pandya's portfolio */
+
+/* Navbar styling */
+.navbar {
+  background-color: #2c3e50 !important;
+}
+
+.navbar-brand {
+  font-weight: 600;
+  color: #ffffff !important;
+}
+
+.navbar-nav .nav-link {
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+
+.navbar-nav .nav-link:hover {
+  color: #ffffff !important;
+}
+
+.navbar .bi {
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+
+.navbar .bi:hover {
+  color: #ffffff !important;
+}
+
+.navbar-toggler-icon {
+  filter: invert(1);
+}
+
+/* About page - centered content */
+.about-contents {
+  max-width: 700px;
+}
+
+.about-contents p {
+  font-size: 1.1rem;
+  line-height: 1.7;
+}
+
+/* Section headers on about page */
+.about-contents h3 {
+  color: #2c3e50;
+  margin-top: 1.5rem;
+  margin-bottom: 1rem;
+  font-size: 1.2rem;
+}
+
+/* Other page section headers */
+h2 {
+  border-bottom: 2px solid #3498db;
+  padding-bottom: 0.5rem;
+  margin-top: 2rem;
+}
+
+/* Horizontal rules */
+hr {
+  margin: 1.5rem 0;
+  border-top: 1px solid #dee2e6;
+}
+
+/* Footer */
+.nav-footer {
+  background-color: #2c3e50;
+  color: white;
+}
+
+/* Blog listing */
+.quarto-listing {
+  margin-top: 2rem;
+}
+
+/* Code blocks */
+pre {
+  background-color: #f8f9fa;
+  border-radius: 4px;
+  padding: 1rem;
+}
+
+/* About links */
+.about-links {
+  margin-top: 1.5rem;
+}
+
+.about-link {
+  margin: 0.3rem;
+}
