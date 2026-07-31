@@ -84,9 +84,9 @@ ul.task-list li input[type="checkbox"] {
     }
 
     const options = {
-      valueNames: ['listing-date','listing-title','listing-author','listing-image','listing-description','listing-categories',{ data: ['index'] },{ data: ['categories'] },{ data: ['listing-date-sort'] },{ data: ['listing-file-modified-sort'] }],
+      valueNames: ['listing-date','listing-title','listing-author','listing-subtitle','listing-image','listing-description','listing-categories',{ data: ['index'] },{ data: ['categories'] },{ data: ['listing-date-sort'] },{ data: ['listing-file-modified-sort'] }],
       
-      searchColumns: ["listing-date","listing-title","listing-author","listing-image","listing-description","listing-categories"],
+      searchColumns: ["listing-date","listing-title","listing-author","listing-subtitle","listing-image","listing-description","listing-categories"],
     };
 
     window['quarto-listings'] = window['quarto-listings'] || {};
@@ -363,7 +363,7 @@ window.Quarto = {
 <!-- margin-sidebar -->
     <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
         
-    <h5 class="quarto-listing-category-title">Categories</h5><div class="quarto-listing-category category-default"><div class="category" data-category="">All <span class="quarto-category-count">(1)</span></div><div class="category" data-category="YmVuY2htYXJraW5n">benchmarking <span class="quarto-category-count">(1)</span></div><div class="category" data-category="ZGVlcC1sZWFybmluZw==">deep-learning <span class="quarto-category-count">(1)</span></div><div class="category" data-category="aW5mZXJlbmNl">inference <span class="quarto-category-count">(1)</span></div><div class="category" data-category="bGxt">llm <span class="quarto-category-count">(1)</span></div><div class="category" data-category="bW9l">moe <span class="quarto-category-count">(1)</span></div><div class="category" data-category="cmF5LXNlcnZl">ray-serve <span class="quarto-category-count">(1)</span></div><div class="category" data-category="dmxsbQ==">vllm <span class="quarto-category-count">(1)</span></div></div></div>
+    <h5 class="quarto-listing-category-title">Categories</h5><div class="quarto-listing-category category-default"><div class="category" data-category="">All <span class="quarto-category-count">(2)</span></div><div class="category" data-category="YmVuY2htYXJraW5n">benchmarking <span class="quarto-category-count">(1)</span></div><div class="category" data-category="ZGVlcC1sZWFybmluZw==">deep-learning <span class="quarto-category-count">(1)</span></div><div class="category" data-category="aW5mZXJlbmNl">inference <span class="quarto-category-count">(1)</span></div><div class="category" data-category="bGxt">llm <span class="quarto-category-count">(1)</span></div><div class="category" data-category="bW9l">moe <span class="quarto-category-count">(1)</span></div><div class="category" data-category="cmF5LXNlcnZl">ray-serve <span class="quarto-category-count">(1)</span></div><div class="category" data-category="dmxsbQ==">vllm <span class="quarto-category-count">(1)</span></div></div></div>
 <!-- main -->
 <main class="content" id="quarto-document-content">
 
@@ -393,7 +393,35 @@ window.Quarto = {
 
 <div class="quarto-listing quarto-listing-container-default" id="listing-listing">
 <div class="list quarto-listing-default">
-<div class="quarto-post image-right" data-index="0" data-categories="bGxtJTJDaW5mZXJlbmNlJTJDdmxsbSUyQ3JheS1zZXJ2ZSUyQ21vZSUyQ2JlbmNobWFya2luZyUyQ2RlZXAtbGVhcm5pbmc=" data-listing-date-sort="1777100400000" data-listing-file-modified-sort="1777947143521" data-listing-date-modified-sort="NaN" data-listing-reading-time-sort="17" data-listing-word-count-sort="3223">
+<div class="quarto-post image-right" data-index="0" data-listing-date-sort="1785394800000" data-listing-file-modified-sort="1785462182986" data-listing-date-modified-sort="NaN" data-listing-reading-time-sort="5" data-listing-word-count-sort="845">
+<div class="thumbnail"><a href="./posts/search_results.html" class="no-external">
+
+<div class="listing-item-img-placeholder card-img-top" >&nbsp;</div>
+
+</a></div>
+<div class="body">
+<h3 class="no-anchor listing-title">
+<a href="./posts/search_results.html" class="no-external">Building and Evaluating a Search Engine Over Malware-Classification Papers</a>
+</h3>
+<div class="listing-subtitle">
+<a href="./posts/search_results.html" class="no-external">A capstone project for AI-Powered Search: BM25 to generative retrieval</a>
+</div>
+<div class="delink listing-description"><a href="./posts/search_results.html" class="no-external">
+This project builds a search engine over a corpus of arXiv malware-classification papers, implementing and comparing six retrieval methods head-to-head: <strong>BM25 → dense…</strong>
+</a></div>
+</div>
+<div class="metadata">
+<a href="./posts/search_results.html" class="no-external">
+<div class="listing-date">
+Jul 30, 2026
+</div>
+<div class="listing-author">
+Vinay Pandya
+</div>
+</a>
+</div>
+</div>
+<div class="quarto-post image-right" data-index="1" data-categories="bGxtJTJDaW5mZXJlbmNlJTJDdmxsbSUyQ3JheS1zZXJ2ZSUyQ21vZSUyQ2JlbmNobWFya2luZyUyQ2RlZXAtbGVhcm5pbmc=" data-listing-date-sort="1777100400000" data-listing-file-modified-sort="1777947143521" data-listing-date-modified-sort="NaN" data-listing-reading-time-sort="17" data-listing-word-count-sort="3223">
 <div class="thumbnail"><a href="./posts/blog_second.html" class="no-external">
 
 <p class="card-img-top"><img src="images/architecture.png" alt="Architecture diagram showing the full stack LLM inference pipeline with Nginx, LangGraph Agent, API Gateway, and various inference backends"  class="thumbnail-image card-img"/></p>
@@ -403,6 +431,9 @@ window.Quarto = {
 <h3 class="no-anchor listing-title">
 <a href="./posts/blog_second.html" class="no-external">Building a Production-Grade LLM Inference Stack: Benchmarking vLLM, Ray Serve, and MoE Models</a>
 </h3>
+<div class="listing-subtitle">
+<a href="./posts/blog_second.html" class="no-external"></a>
+</div>
 <div class="listing-categories">
 
 <div class="listing-category" onclick="window.quartoListingCategory('bGxt'); return false;">llm</div>
