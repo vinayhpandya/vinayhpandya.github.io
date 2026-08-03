@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
 <meta name="author" content="Vinay Pandya">
-<meta name="dcterms.date" content="2026-07-30">
+<meta name="dcterms.date" content="2026-08-03">
 
 <title>Building and Evaluating a Search Engine Over Malware-Classification Papers – Vinay Pandya</title>
 <style>
@@ -152,8 +152,11 @@ ul.task-list li input[type="checkbox"] {
   <li><a href="#results-retrieval-quality" id="toc-results-retrieval-quality" class="nav-link" data-scroll-target="#results-retrieval-quality">Results: Retrieval Quality</a>
   <ul class="collapse">
   <li><a href="#reading-the-core-four-methods" id="toc-reading-the-core-four-methods" class="nav-link" data-scroll-target="#reading-the-core-four-methods">Reading the core four methods</a></li>
-  <li><a href="#the-semantic-id-result" id="toc-the-semantic-id-result" class="nav-link" data-scroll-target="#the-semantic-id-result">The semantic ID result</a></li>
+  <li><a href="#two-different-semantic-id-based-methods-two-different-stories" id="toc-two-different-semantic-id-based-methods-two-different-stories" class="nav-link" data-scroll-target="#two-different-semantic-id-based-methods-two-different-stories">Two different semantic-ID-based methods, two different stories</a></li>
   </ul></li>
+  <li><a href="#generative-retrieval-what-was-actually-built" id="toc-generative-retrieval-what-was-actually-built" class="nav-link" data-scroll-target="#generative-retrieval-what-was-actually-built">Generative Retrieval: What Was Actually Built</a></li>
+  <li><a href="#latency" id="toc-latency" class="nav-link" data-scroll-target="#latency">Latency</a></li>
+  <li><a href="#future-work" id="toc-future-work" class="nav-link" data-scroll-target="#future-work">Future Work</a></li>
   </ul>
 </nav>
     </div>
@@ -187,7 +190,7 @@ ul.task-list li input[type="checkbox"] {
     <div>
     <div class="quarto-title-meta-heading">Published</div>
     <div class="quarto-title-meta-contents">
-      <p class="date">July 30, 2026</p>
+      <p class="date">August 3, 2026</p>
     </div>
   </div>
   
@@ -201,7 +204,7 @@ ul.task-list li input[type="checkbox"] {
 
 <section id="overview" class="level2">
 <h2 class="anchored" data-anchor-id="overview">Overview</h2>
-<p>This project builds a search engine over a corpus of arXiv malware-classification papers, implementing and comparing six retrieval methods head-to-head: <strong>BM25 → dense (SPECTER2) → hybrid (RRF) → cross-encoder rerank → late-interaction (ColBERT via Qdrant) → generative retrieval (a trained query→semantic-ID model)</strong>.</p>
+<p>This project builds a search engine over a corpus of arXiv malware-classification papers, implementing and comparing seven retrieval methods head-to-head: <strong>BM25 → dense (SPECTER2) → hybrid (RRF) → cross-encoder rerank → late-interaction (ColBERT via Qdrant) → k-means cluster-filtered search → generative retrieval (a trained query→semantic-ID model)</strong>.</p>
 <p>Every method is evaluated on the same 40-query, LLM-judged relevance-labeled eval set, using the same NDCG@10 / MRR metrics, and benchmarked on the same latency harness. The goal was not just to build each technique, but to honestly report where each one wins, where it loses, and why — including findings that didn’t come out the way theory alone would predict.</p>
 <p>Code: <a href="https://github.com/vinayhpandya/search-algorithms">github.com/vinayhpandya/search-algorithms</a></p>
 </section>
@@ -218,27 +221,33 @@ ul.task-list li input[type="checkbox"] {
 <h2 class="anchored" data-anchor-id="methodology-evaluation">Methodology: Evaluation</h2>
 <section id="relevance-labeling" class="level3">
 <h3 class="anchored" data-anchor-id="relevance-labeling">Relevance labeling</h3>
-<p>Manually labeling enough query-paper pairs for a meaningful eval set (857 pairs across 40 queries at initial scope, growing further as more methods were added) isn’t realistic by hand in the available time. Instead:</p>
+<p>Manually labeling enough query-paper pairs for a meaningful eval set (857+ pairs across 40 queries) isn’t realistic by hand in the available time. Instead:</p>
 <ol type="1">
 <li>A <strong>researcher</strong> LLM rates each pair 0/1/2 with a rationale</li>
 <li>A <strong>critic</strong> LLM reviews the researcher’s rating and either confirms or overrides it — final label = critic’s call</li>
 <li>A <strong>human spot-check</strong> on a stratified sample (~65 pairs, weighted toward researcher/critic disagreements) validates the LLM labels</li>
 </ol>
 <p>This is standard practice for evaluating relevance judgments at scale (the same logic behind TREC-style IR evaluation and industry search-quality teams checking LLM/crowd-worker judgments) — not a shortcut.</p>
-<p><strong>Known calibration issue</strong>: only ~3% of labeled pairs were rated “not relevant” (0). Because candidate pools are built from real search results (already topically adjacent to the query), the researcher/critic prompts turned out lenient about what counts as irrelevant. This doesn’t invalidate the labels — NDCG@10 still discriminates well since it weights label=2 three times as heavily as label=1 — but it does mean <strong>MRR at the standard threshold (label ≥ 1) saturates near 1.0 for every method</strong> and carries no signal. Reporting <strong>MRR at threshold ≥ 2</strong> (“how often is the very best result found immediately”) restored real discrimination between methods without needing to relabel anything.</p>
+<p><strong>Known calibration issue</strong>: only ~3% of labeled pairs were rated “not relevant” (0). Because candidate pools are built from real search results (already topically adjacent to the query), the researcher/critic prompts turned out lenient about what counts as irrelevant. This doesn’t invalidate the labels — NDCG@10 still discriminates well since it weights label=2 three times as heavily as label=1 — but it does mean <strong>MRR at the standard threshold (label ≥ 1) saturates near 1.0 for every method</strong> and carries no signal. Reporting <strong>MRR at threshold ≥ 2</strong> (“how often is the very best result found immediately”) restored real discrimination between methods without needing to relabel anything. (A tighter, binary relevance rubric was designed as a follow-up fix but not run before this writeup — noted under Future Work.)</p>
 </section>
 <section id="metrics" class="level3">
 <h3 class="anchored" data-anchor-id="metrics">Metrics</h3>
 <ul>
 <li><strong>NDCG@10</strong>: rewards ranking highly-relevant results near the top; uses the full graded (0/1/2) label</li>
 <li><strong>MRR(≥2)</strong>: reciprocal rank of the first <em>highly</em> relevant result — the metric that actually discriminates given this corpus’s label distribution</li>
-<li><strong>Latency</strong>: mean / p50 / p95 across 40 queries × 5 runs each (first run per query discarded as warmup), local machine, no GPU</li>
+<li><strong>Latency</strong>: mean / p50 / p95 across 40 queries, local machine, no GPU</li>
 </ul>
 </section>
 </section>
 <section id="results-retrieval-quality" class="level2">
 <h2 class="anchored" data-anchor-id="results-retrieval-quality">Results: Retrieval Quality</h2>
 <table class="caption-top table">
+<colgroup>
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+</colgroup>
 <thead>
 <tr class="header">
 <th>Method</th>
@@ -279,10 +288,16 @@ ul.task-list li input[type="checkbox"] {
 <td>0.6951</td>
 </tr>
 <tr class="even">
-<td>Semantic ID (generative)</td>
+<td>Semantic ID (k-means, cluster-filtered)</td>
 <td>0.9624</td>
 <td>0.9625</td>
 <td>0.2744</td>
+</tr>
+<tr class="odd">
+<td>Generative (RQ-VAE + trained query→ID model)</td>
+<td>0.9005</td>
+<td>1.0000</td>
+<td>0.2432</td>
 </tr>
 </tbody>
 </table>
@@ -293,13 +308,92 @@ ul.task-list li input[type="checkbox"] {
 <p><strong>Late-interaction lands between dense and hybrid</strong> (MRR≥2 = 0.6951) — consistent with the theoretical expectation that token-level (MaxSim) matching captures finer-grained relevance than single-vector cosine similarity, without needing full cross-attention.</p>
 <p><strong>Rerank is the best quality by both metrics</strong> — expected, since a cross-encoder sees the full query and document jointly via cross-attention (strictly more expressive than any similarity-metric-based method here), at the cost of only being feasible on a pre-filtered shortlist, never the whole corpus.</p>
 </section>
-<section id="the-semantic-id-result" class="level3">
-<h3 class="anchored" data-anchor-id="the-semantic-id-result">The semantic ID result</h3>
-<p>At face value, the generative retrieval method’s NDCG@10 (0.9624) is the <em>highest</em> of all six methods — but this is a labeling artifact, not a genuine quality win, and the MRR(≥2) column makes that clear (0.2744, by far the <em>lowest</em> of all six).</p>
-<p>The trained query→semantic-ID model (t5-small, fine-tuned on ~660 synthetic query examples) suffered <strong>mode collapse</strong>: it predicts the same coarse/fine cluster (<code>[1, 0]</code>) for a large share of unrelated queries, rather than genuinely discriminating between them (see sample predictions below). That cluster happens to be a large, generically-malware-relevant group of papers — so almost any malware-related query retrieves <em>something</em> “somewhat relevant” from it (driving MRR(≥1) and NDCG up), but essentially never the <em>single best</em> paper for a specific query (driving MRR(≥2) down). This is a coherent, honest finding: <strong>the model learned to be right about the wrong thing</strong> — a shortcut that scores deceptively well on a lenient metric while providing near-zero real retrieval discrimination.</p>
-
-
+<section id="two-different-semantic-id-based-methods-two-different-stories" class="level3">
+<h3 class="anchored" data-anchor-id="two-different-semantic-id-based-methods-two-different-stories">Two different semantic-ID-based methods, two different stories</h3>
+<p>Both remaining rows use “semantic IDs” but are otherwise unrelated methods, worth not conflating:</p>
+<ul>
+<li><strong>Semantic ID (k-means)</strong>: a two-level k-means clustering over SPECTER2 embeddings, used to pre-filter/organize the corpus (IVF-style). Highest NDCG@10 of all seven methods (0.9624) but by far the lowest MRR(≥2) (0.2744) — it reliably finds <em>something</em> topically adjacent, but rarely the single best paper. A fixed, non-learned clustering, not a retrieval model in its own right.</li>
+<li><strong>Generative retrieval</strong>: a genuinely trained model (RQ-VAE + query→ID decoder, detailed below) that predicts a semantic ID directly from the query text and looks up matching papers — the actual “generative retrieval” paradigm this project set out to test.</li>
+</ul>
 </section>
+</section>
+<section id="generative-retrieval-what-was-actually-built" class="level2">
+<h2 class="anchored" data-anchor-id="generative-retrieval-what-was-actually-built">Generative Retrieval: What Was Actually Built</h2>
+<p>Beyond the six baseline methods above, a from-scratch generative retrieval pipeline was implemented, following the two-stage design used in TIGER-style semantic ID systems:</p>
+<p><strong>Stage 1 — RQ-VAE.</strong> A small encoder/decoder (MLP, 768→512→256→32) with a 2-level residual vector quantizer (16 codewords/level, EMA codebook updates, dead-code reset) trained on SPECTER2 embeddings to produce a hierarchical 2-digit semantic ID per paper (<code>[coarse, fine]</code>). Trained on the full 194-paper corpus; qualitative inspection showed genuinely topic-coherent clusters (e.g.&nbsp;one cluster grouped five adversarial-malware-attack papers, another grouped five malware-classification-methods papers).</p>
+<p><strong>Stage 2 — query-to-ID model.</strong> Since no real user queries exist, ~1,940 synthetic (query, semantic_id) pairs were generated via LLM (10 queries per paper, mixing keyword-close and oblique natural-language phrasings). A frozen MiniLM sentence encoder + small 2-layer transformer decoder was trained to autoregressively predict a paper’s semantic ID digit-by-digit from a query, with beam search at inference time. Train/val split was done <strong>by paper</strong>, not by row, to prevent different phrasings of the same paper’s queries leaking across the split.</p>
+<p><strong>Evaluation methodology.</strong> The trained model was wired into the same eval harness as the other six methods: for each of the 40 eval queries, beam search produces ranked candidate semantic IDs, each ID’s matching papers are pulled in beam order to build a ranked top-10 list, and that list is scored with the same NDCG@10/MRR machinery and LLM-judged labels used throughout.</p>
+<p><strong>Result: a clear, honest negative finding.</strong> Training showed a real generalization gap — training exact-match accuracy climbed to 36% while validation exact-match stayed near 2–5%, i.e.&nbsp;the model was memorizing training-set query phrasings rather than learning to generalize across topics. This is directly reflected in the eval numbers: NDCG@10 (0.9005) looks reasonable only because the label set skews lenient (see calibration note above), while MRR(≥2) (0.2432) — the metric that actually measures whether the <em>single best</em> paper is found — is among the weakest of all seven methods. The most likely cause, and the most actionable finding: 194 papers (165 after the train/val split) is simply too little topic diversity for a 256-way discrete prediction task to generalize from — an architecture problem this isn’t; a data-scale problem it is. Scaling to a larger corpus (e.g.&nbsp;the ~100k-paper ML-ArXiv-Papers subset) is the natural next step to test that hypothesis directly.</p>
+</section>
+<section id="latency" class="level2">
+<h2 class="anchored" data-anchor-id="latency">Latency</h2>
+<p>Mean / p50 / p95 across 40 queries, local machine, no GPU:</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>Method</th>
+<th>Mean (ms)</th>
+<th>P50 (ms)</th>
+<th>P95 (ms)</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>BM25</td>
+<td>2.7</td>
+<td>2.6</td>
+<td>3.3</td>
+</tr>
+<tr class="even">
+<td>Late-interaction</td>
+<td>12.6</td>
+<td>12.3</td>
+<td>16.0</td>
+</tr>
+<tr class="odd">
+<td>Generative</td>
+<td>20.4</td>
+<td>20.0</td>
+<td>23.9</td>
+</tr>
+<tr class="even">
+<td>Semantic ID (k-means)</td>
+<td>30.5</td>
+<td>30.4</td>
+<td>36.0</td>
+</tr>
+<tr class="odd">
+<td>Dense</td>
+<td>42.7</td>
+<td>42.7</td>
+<td>48.0</td>
+</tr>
+<tr class="even">
+<td>Hybrid</td>
+<td>59.6</td>
+<td>59.4</td>
+<td>64.8</td>
+</tr>
+<tr class="odd">
+<td>Rerank</td>
+<td>187.8</td>
+<td>186.8</td>
+<td>200.9</td>
+</tr>
+</tbody>
+</table>
+<p>BM25 is fastest by a wide margin, as expected — no model inference at all. Generative retrieval lands in the middle of the pack: slower than BM25 and late-interaction, but notably faster than dense search despite also requiring a forward pass, since the query encoder here (frozen MiniLM) is far smaller than SPECTER2, and lookup after ID prediction is a cheap dictionary access rather than a k-NN search over the full corpus. Rerank is the clear latency outlier, consistent with cross-encoders’ cost scaling with the number of candidates scored, not just query size — the tradeoff that pairs it with a cheap first-stage retriever in practice rather than running it corpus-wide.</p>
+</section>
+<section id="future-work" class="level2">
+<h2 class="anchored" data-anchor-id="future-work">Future Work</h2>
+<ul>
+<li><strong>Rerun evaluation under a binary (0/1), query-specific relevance rubric</strong> — designed to fix the labeling calibration issue described above, but not executed before this writeup.</li>
+<li><strong>Scale the corpus</strong> (e.g.&nbsp;to the ~100k-paper ML-ArXiv-Papers subset) to directly test whether generative retrieval’s weak MRR(≥2) is a data-scale problem, as the evidence here suggests, rather than an architectural one.</li>
+<li><strong>Hypencoders</strong> Testing a small Qnet and hype-encoder based network, want to see how fast it is to train and how well the NDCG scores are</li>
+<li><strong>Full-text PDFs and a RAG QA layer</strong> on top of the retrieval stack — scoped out from the very beginning to keep this project achievable in the available time.</li>
+</ul>
+
+
 </section>
 
 </main> <!-- /main -->
