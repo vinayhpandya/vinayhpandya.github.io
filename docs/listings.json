@@ -2,6 +2,7 @@
   {
     "listing": "/blog.html",
     "items": [
+      "/posts/rediska.html",
       "/posts/search_results.html",
       "/posts/blog_second.html"
     ]
