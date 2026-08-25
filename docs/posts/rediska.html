@@ -6,8 +6,10 @@
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
+<meta name="author" content="Vinay Pandya">
+<meta name="dcterms.date" content="2026-08-25">
 
-<title>Blog – Vinay Pandya</title>
+<title>Rediska: Architecture and Performance Notes for a Go-Based Redis Clone – Vinay Pandya</title>
 <style>
 code{white-space: pre-wrap;}
 span.smallcaps{font-variant: small-caps;}
@@ -23,30 +25,28 @@ ul.task-list li input[type="checkbox"] {
 </style>
 
 
-<script src="site_libs/quarto-nav/quarto-nav.js"></script>
-<script src="site_libs/quarto-nav/headroom.min.js"></script>
-<script src="site_libs/clipboard/clipboard.min.js"></script>
-<script src="site_libs/quarto-search/autocomplete.umd.js"></script>
-<script src="site_libs/quarto-search/fuse.min.js"></script>
-<script src="site_libs/quarto-search/quarto-search.js"></script>
-<meta name="quarto:offset" content="./">
-<script src="site_libs/quarto-listing/list.min.js"></script>
-<script src="site_libs/quarto-listing/quarto-listing.js"></script>
-<script src="site_libs/quarto-html/quarto.js" type="module"></script>
-<script src="site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
-<script src="site_libs/quarto-html/axe/axe-check.js" type="module"></script>
-<script src="site_libs/quarto-html/popper.min.js"></script>
-<script src="site_libs/quarto-html/tippy.umd.min.js"></script>
-<script src="site_libs/quarto-html/anchor.min.js"></script>
-<link href="site_libs/quarto-html/tippy.css" rel="stylesheet">
-<link href="site_libs/quarto-html/quarto-syntax-highlighting-ed96de9b727972fe78a7b5d16c58bf87.css" rel="stylesheet" class="quarto-color-scheme" id="quarto-text-highlighting-styles">
-<link href="site_libs/quarto-html/quarto-syntax-highlighting-dark-4d9afe2b8d18ee9fa5d0d57b5ed4214d.css" rel="stylesheet" class="quarto-color-scheme quarto-color-alternate" id="quarto-text-highlighting-styles">
-<link href="site_libs/quarto-html/quarto-syntax-highlighting-ed96de9b727972fe78a7b5d16c58bf87.css" rel="stylesheet" class="quarto-color-scheme-extra" id="quarto-text-highlighting-styles">
-<script src="site_libs/bootstrap/bootstrap.min.js"></script>
-<link href="site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
-<link href="site_libs/bootstrap/bootstrap-5b4ad623e5705c0698d39aec6f10cf02.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
-<link href="site_libs/bootstrap/bootstrap-dark-0d4a9d19931feb4fee1ddab4b2489000.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="dark">
-<link href="site_libs/bootstrap/bootstrap-5b4ad623e5705c0698d39aec6f10cf02.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme-extra" id="quarto-bootstrap" data-mode="light">
+<script src="../site_libs/quarto-nav/quarto-nav.js"></script>
+<script src="../site_libs/quarto-nav/headroom.min.js"></script>
+<script src="../site_libs/clipboard/clipboard.min.js"></script>
+<script src="../site_libs/quarto-search/autocomplete.umd.js"></script>
+<script src="../site_libs/quarto-search/fuse.min.js"></script>
+<script src="../site_libs/quarto-search/quarto-search.js"></script>
+<meta name="quarto:offset" content="../">
+<script src="../site_libs/quarto-html/quarto.js" type="module"></script>
+<script src="../site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="../site_libs/quarto-html/axe/axe-check.js" type="module"></script>
+<script src="../site_libs/quarto-html/popper.min.js"></script>
+<script src="../site_libs/quarto-html/tippy.umd.min.js"></script>
+<script src="../site_libs/quarto-html/anchor.min.js"></script>
+<link href="../site_libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-ed96de9b727972fe78a7b5d16c58bf87.css" rel="stylesheet" class="quarto-color-scheme" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-dark-4d9afe2b8d18ee9fa5d0d57b5ed4214d.css" rel="stylesheet" class="quarto-color-scheme quarto-color-alternate" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-ed96de9b727972fe78a7b5d16c58bf87.css" rel="stylesheet" class="quarto-color-scheme-extra" id="quarto-text-highlighting-styles">
+<script src="../site_libs/bootstrap/bootstrap.min.js"></script>
+<link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="../site_libs/bootstrap/bootstrap-5b4ad623e5705c0698d39aec6f10cf02.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-dark-0d4a9d19931feb4fee1ddab4b2489000.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="dark">
+<link href="../site_libs/bootstrap/bootstrap-5b4ad623e5705c0698d39aec6f10cf02.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme-extra" id="quarto-bootstrap" data-mode="light">
 <script id="quarto-search-options" type="application/json">{
   "location": "navbar",
   "copy-button": false,
@@ -74,68 +74,14 @@ ul.task-list li input[type="checkbox"] {
     "search-label": "Search"
   }
 }</script>
-<script>
+<meta name="mermaid-theme" content="default">
+<script src="../site_libs/quarto-diagram/mermaid.min.js"></script>
+<script src="../site_libs/quarto-diagram/mermaid-init.js"></script>
+<link href="../site_libs/quarto-diagram/mermaid.css" rel="stylesheet">
 
-  window.document.addEventListener("DOMContentLoaded", function (_event) {
-    const listingTargetEl = window.document.querySelector('#listing-listing .list');
-    if (!listingTargetEl) {
-      // No listing discovered, do not attach.
-      return; 
-    }
 
-    const options = {
-      valueNames: ['listing-date','listing-title','listing-author','listing-subtitle','listing-image','listing-description','listing-categories',{ data: ['index'] },{ data: ['categories'] },{ data: ['listing-date-sort'] },{ data: ['listing-file-modified-sort'] }],
-      
-      searchColumns: ["listing-date","listing-title","listing-author","listing-subtitle","listing-image","listing-description","listing-categories"],
-    };
-
-    window['quarto-listings'] = window['quarto-listings'] || {};
-    window['quarto-listings']['listing-listing'] = new List('listing-listing', options);
-
-    if (window['quarto-listing-loaded']) {
-      window['quarto-listing-loaded']();
-    }
-  });
-
-  window.addEventListener('hashchange',() => {
-    if (window['quarto-listing-loaded']) {
-      window['quarto-listing-loaded']();
-    }
-  })
-  </script>
-
-  <script src="https://cdnjs.cloudflare.com/polyfill/v3/polyfill.min.js?features=es6"></script>
-  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml-full.js" type="text/javascript"></script>
-
-<script type="text/javascript">
-const typesetMath = (el) => {
-  if (window.MathJax) {
-    // MathJax Typeset
-    window.MathJax.typeset([el]);
-  } else if (window.katex) {
-    // KaTeX Render
-    var mathElements = el.getElementsByClassName("math");
-    var macros = [];
-    for (var i = 0; i < mathElements.length; i++) {
-      var texText = mathElements[i].firstChild;
-      if (mathElements[i].tagName == "SPAN" && texText && texText.data) {
-        window.katex.render(texText.data, mathElements[i], {
-          displayMode: mathElements[i].classList.contains('display'),
-          throwOnError: false,
-          macros: macros,
-          fleqn: false
-        });
-      }
-    }
-  }
-}
-window.Quarto = {
-  typesetMath
-};
-</script>
-
-<link rel="stylesheet" href="styles.css">
-<link rel="alternate" type="application/rss+xml" title="Vinay Pandya" href="blog.xml" data-external="1"></head>
+<link rel="stylesheet" href="../styles.css">
+</head>
 
 <body class="nav-fixed quarto-light"><script id="quarto-html-before-body" type="application/javascript">
     const toggleBodyColorMode = (bsSheetEl) => {
@@ -306,7 +252,7 @@ window.Quarto = {
     <nav class="navbar navbar-expand-lg " data-bs-theme="dark">
       <div class="navbar-container container-fluid">
       <div class="navbar-brand-container mx-auto">
-    <a class="navbar-brand" href="./index.html">
+    <a class="navbar-brand" href="../index.html">
     <span class="navbar-title">Vinay Pandya</span>
     </a>
   </div>
@@ -317,19 +263,19 @@ window.Quarto = {
           <div class="collapse navbar-collapse" id="navbarCollapse">
             <ul class="navbar-nav navbar-nav-scroll me-auto">
   <li class="nav-item">
-    <a class="nav-link" href="./index.html"> 
+    <a class="nav-link" href="../index.html"> 
 <span class="menu-text">About</span></a>
   </li>  
   <li class="nav-item">
-    <a class="nav-link" href="./experience.html"> 
+    <a class="nav-link" href="../experience.html"> 
 <span class="menu-text">Experience</span></a>
   </li>  
   <li class="nav-item">
-    <a class="nav-link" href="./projects.html"> 
+    <a class="nav-link" href="../projects.html"> 
 <span class="menu-text">Projects</span></a>
   </li>  
   <li class="nav-item">
-    <a class="nav-link active" href="./blog.html" aria-current="page"> 
+    <a class="nav-link" href="../blog.html"> 
 <span class="menu-text">Blog</span></a>
   </li>  
 </ul>
@@ -362,22 +308,63 @@ window.Quarto = {
 <!-- sidebar -->
 <!-- margin-sidebar -->
     <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
-        
-    <h5 class="quarto-listing-category-title">Categories</h5><div class="quarto-listing-category category-default"><div class="category" data-category="">All <span class="quarto-category-count">(3)</span></div><div class="category" data-category="YmVuY2htYXJraW5n">benchmarking <span class="quarto-category-count">(2)</span></div><div class="category" data-category="Qk0yNQ==">BM25 <span class="quarto-category-count">(1)</span></div><div class="category" data-category="Y29uY3VycmVuY3k=">concurrency <span class="quarto-category-count">(1)</span></div><div class="category" data-category="ZGVlcC1sZWFybmluZw==">deep-learning <span class="quarto-category-count">(1)</span></div><div class="category" data-category="Z28=">go <span class="quarto-category-count">(1)</span></div><div class="category" data-category="aW5mZXJlbmNl">inference <span class="quarto-category-count">(1)</span></div><div class="category" data-category="bGxt">llm <span class="quarto-category-count">(2)</span></div><div class="category" data-category="bW9l">moe <span class="quarto-category-count">(1)</span></div><div class="category" data-category="T3BlbnNlYXJjaA==">Opensearch <span class="quarto-category-count">(1)</span></div><div class="category" data-category="cmF5LXNlcnZl">ray-serve <span class="quarto-category-count">(1)</span></div><div class="category" data-category="cmVkaXM=">redis <span class="quarto-category-count">(1)</span></div><div class="category" data-category="U2VtYW50aWMlMjBJZHM=">Semantic Ids <span class="quarto-category-count">(1)</span></div><div class="category" data-category="c3lzdGVtcy1kZXNpZ24=">systems-design <span class="quarto-category-count">(1)</span></div><div class="category" data-category="dmVjdG9yJTIwc2VhcmNo">vector search <span class="quarto-category-count">(1)</span></div><div class="category" data-category="dmxsbQ==">vllm <span class="quarto-category-count">(1)</span></div></div></div>
+        <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">On this page</h2>
+   
+  <ul>
+  <li><a href="#introduction" id="toc-introduction" class="nav-link active" data-scroll-target="#introduction"><span class="header-section-number">1</span> Introduction</a></li>
+  <li><a href="#sec-architecture" id="toc-sec-architecture" class="nav-link" data-scroll-target="#sec-architecture"><span class="header-section-number">2</span> Architecture: One Channel, One Worker</a></li>
+  <li><a href="#sec-features" id="toc-sec-features" class="nav-link" data-scroll-target="#sec-features"><span class="header-section-number">3</span> What’s Implemented</a>
+  <ul class="collapse">
+  <li><a href="#persistence-and-expiry" id="toc-persistence-and-expiry" class="nav-link" data-scroll-target="#persistence-and-expiry"><span class="header-section-number">3.1</span> Persistence and expiry</a></li>
+  <li><a href="#eviction-policies" id="toc-eviction-policies" class="nav-link" data-scroll-target="#eviction-policies"><span class="header-section-number">3.2</span> Eviction policies</a></li>
+  <li><a href="#transactions" id="toc-transactions" class="nav-link" data-scroll-target="#transactions"><span class="header-section-number">3.3</span> Transactions</a></li>
+  <li><a href="#hyperloglog" id="toc-hyperloglog" class="nav-link" data-scroll-target="#hyperloglog"><span class="header-section-number">3.4</span> HyperLogLog</a></li>
+  <li><a href="#pipelining" id="toc-pipelining" class="nav-link" data-scroll-target="#pipelining"><span class="header-section-number">3.5</span> Pipelining</a></li>
+  <li><a href="#monitoring-and-graceful-shutdown" id="toc-monitoring-and-graceful-shutdown" class="nav-link" data-scroll-target="#monitoring-and-graceful-shutdown"><span class="header-section-number">3.6</span> Monitoring and graceful shutdown</a></li>
+  </ul></li>
+  <li><a href="#sec-comparison" id="toc-sec-comparison" class="nav-link" data-scroll-target="#sec-comparison"><span class="header-section-number">4</span> How It Compares to Redis</a>
+  <ul class="collapse">
+  <li><a href="#what-profiling-actually-showed" id="toc-what-profiling-actually-showed" class="nav-link" data-scroll-target="#what-profiling-actually-showed"><span class="header-section-number">4.1</span> What profiling actually showed</a></li>
+  </ul></li>
+  <li><a href="#sec-next-testing" id="toc-sec-next-testing" class="nav-link" data-scroll-target="#sec-next-testing"><span class="header-section-number">5</span> What’s Left to Test</a></li>
+  <li><a href="#sec-appendix" id="toc-sec-appendix" class="nav-link" data-scroll-target="#sec-appendix"><span class="header-section-number">6</span> Appendix: Repository</a></li>
+  </ul>
+</nav>
+    </div>
 <!-- main -->
 <main class="content" id="quarto-document-content">
 
 
 <header id="title-block-header" class="quarto-title-block default">
 <div class="quarto-title">
-<h1 class="title">Blog</h1>
-</div>
+<h1 class="title">Rediska: Architecture and Performance Notes for a Go-Based Redis Clone</h1>
+  <div class="quarto-categories">
+    <div class="quarto-category">go</div>
+    <div class="quarto-category">redis</div>
+    <div class="quarto-category">concurrency</div>
+    <div class="quarto-category">systems-design</div>
+    <div class="quarto-category">benchmarking</div>
+  </div>
+  </div>
 
 
 
 <div class="quarto-title-meta">
 
+    <div>
+    <div class="quarto-title-meta-heading">Author</div>
+    <div class="quarto-title-meta-contents">
+             <p>Vinay Pandya </p>
+          </div>
+  </div>
     
+    <div>
+    <div class="quarto-title-meta-heading">Published</div>
+    <div class="quarto-title-meta-contents">
+      <p class="date">August 25, 2026</p>
+    </div>
+  </div>
   
     
   </div>
@@ -387,142 +374,179 @@ window.Quarto = {
 </header>
 
 
-
-
-
-
-<div class="quarto-listing quarto-listing-container-default" id="listing-listing">
-<div class="list quarto-listing-default">
-<div class="quarto-post image-right" data-index="0" data-categories="Z28lMkNyZWRpcyUyQ2NvbmN1cnJlbmN5JTJDc3lzdGVtcy1kZXNpZ24lMkNiZW5jaG1hcmtpbmc=" data-listing-date-sort="1787641200000" data-listing-file-modified-sort="1787701306668" data-listing-date-modified-sort="NaN" data-listing-reading-time-sort="9" data-listing-word-count-sort="1611">
-<div class="thumbnail"><a href="./posts/rediska.html" class="no-external">
-
-<div class="listing-item-img-placeholder card-img-top" >&nbsp;</div>
-
-</a></div>
-<div class="body">
-<h3 class="no-anchor listing-title">
-<a href="./posts/rediska.html" class="no-external">Rediska: Architecture and Performance Notes for a Go-Based Redis Clone</a>
-</h3>
-<div class="listing-subtitle">
-<a href="./posts/rediska.html" class="no-external"></a>
+<section id="introduction" class="level2" data-number="1">
+<h2 data-number="1" class="anchored" data-anchor-id="introduction"><span class="header-section-number">1</span> Introduction</h2>
+<p><a href="https://github.com/vinayhpandya/learning-redis">Rediska</a> is a Redis clone I’ve been building in Go, mostly as a way to actually understand what Redis does under the hood — RESP parsing, an in-memory store, AOF persistence, transactions, HyperLogLog, pipelining, eviction policies — rather than just using it. This post walks through how it’s put together, what it currently supports, and how it stacks up against real Redis on <code>redis-benchmark</code>.</p>
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
 </div>
-<div class="listing-categories">
-
-<div class="listing-category" onclick="window.quartoListingCategory('Z28='); return false;">go</div>
-
-<div class="listing-category" onclick="window.quartoListingCategory('cmVkaXM='); return false;">redis</div>
-
-<div class="listing-category" onclick="window.quartoListingCategory('Y29uY3VycmVuY3k='); return false;">concurrency</div>
-
-<div class="listing-category" onclick="window.quartoListingCategory('c3lzdGVtcy1kZXNpZ24='); return false;">systems-design</div>
-
-<div class="listing-category" onclick="window.quartoListingCategory('YmVuY2htYXJraW5n'); return false;">benchmarking</div>
-
-</div>
-<div class="delink listing-description"><a href="./posts/rediska.html" class="no-external">
-Rediska is a Redis clone I’ve been building in Go, mostly as a way to actually understand what Redis does under the hood — RESP parsing, an in-memory store, AOF persistence…<code></code>
-</a></div>
-</div>
-<div class="metadata">
-<a href="./posts/rediska.html" class="no-external">
-<div class="listing-date">
-Aug 25, 2026
-</div>
-<div class="listing-author">
-Vinay Pandya
-</div>
-</a>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>What this post covers
 </div>
 </div>
-<div class="quarto-post image-right" data-index="1" data-categories="bGxtJTJDQk0yNSUyQ09wZW5zZWFyY2glMkNTZW1hbnRpYyUyMElkcyUyQ3ZlY3RvciUyMHNlYXJjaA==" data-listing-date-sort="1787641200000" data-listing-file-modified-sort="1785783343032" data-listing-date-modified-sort="NaN" data-listing-reading-time-sort="8" data-listing-word-count-sort="1479">
-<div class="thumbnail"><a href="./posts/search_results.html" class="no-external">
-
-<div class="listing-item-img-placeholder card-img-top" >&nbsp;</div>
-
-</a></div>
-<div class="body">
-<h3 class="no-anchor listing-title">
-<a href="./posts/search_results.html" class="no-external">Building and Evaluating a Search Engine Over Malware-Classification Papers</a>
-</h3>
-<div class="listing-subtitle">
-<a href="./posts/search_results.html" class="no-external">A capstone project for AI-Powered Search: BM25 to generative retrieval</a>
-</div>
-<div class="listing-categories">
-
-<div class="listing-category" onclick="window.quartoListingCategory('bGxt'); return false;">llm</div>
-
-<div class="listing-category" onclick="window.quartoListingCategory('Qk0yNQ=='); return false;">BM25</div>
-
-<div class="listing-category" onclick="window.quartoListingCategory('T3BlbnNlYXJjaA=='); return false;">Opensearch</div>
-
-<div class="listing-category" onclick="window.quartoListingCategory('U2VtYW50aWMlMjBJZHM='); return false;">Semantic Ids</div>
-
-<div class="listing-category" onclick="window.quartoListingCategory('dmVjdG9yJTIwc2VhcmNo'); return false;">vector search</div>
-
-</div>
-<div class="delink listing-description"><a href="./posts/search_results.html" class="no-external">
-This project builds a search engine over a corpus of arXiv malware-classification papers, implementing and comparing seven retrieval methods head-to-head: <strong>BM25 → dense…</strong>
-</a></div>
-</div>
-<div class="metadata">
-<a href="./posts/search_results.html" class="no-external">
-<div class="listing-date">
-Aug 25, 2026
-</div>
-<div class="listing-author">
-Vinay Pandya
-</div>
-</a>
+<div class="callout-body-container callout-body">
+<ul>
+<li>The dispatch architecture: connections, a shared command channel, and a single worker</li>
+<li>What’s implemented so far: persistence, expiry, eviction, transactions, HyperLogLog, pipelining</li>
+<li>Graceful shutdown, and why it needs more than “just close the socket”</li>
+<li>How it compares to real Redis on benchmarks, and what the gap is likely coming from</li>
+<li>What’s left to test to pin that down further</li>
+</ul>
 </div>
 </div>
-<div class="quarto-post image-right" data-index="2" data-categories="bGxtJTJDaW5mZXJlbmNlJTJDdmxsbSUyQ3JheS1zZXJ2ZSUyQ21vZSUyQ2JlbmNobWFya2luZyUyQ2RlZXAtbGVhcm5pbmc=" data-listing-date-sort="1777100400000" data-listing-file-modified-sort="1777947143521" data-listing-date-modified-sort="NaN" data-listing-reading-time-sort="17" data-listing-word-count-sort="3223">
-<div class="thumbnail"><a href="./posts/blog_second.html" class="no-external">
-
-<p class="card-img-top"><img src="images/architecture.png" alt="Architecture diagram showing the full stack LLM inference pipeline with Nginx, LangGraph Agent, API Gateway, and various inference backends"  class="thumbnail-image card-img"/></p>
-
-</a></div>
-<div class="body">
-<h3 class="no-anchor listing-title">
-<a href="./posts/blog_second.html" class="no-external">Building a Production-Grade LLM Inference Stack: Benchmarking vLLM, Ray Serve, and MoE Models</a>
-</h3>
-<div class="listing-subtitle">
-<a href="./posts/blog_second.html" class="no-external"></a>
+</section>
+<section id="sec-architecture" class="level2" data-number="2">
+<h2 data-number="2" class="anchored" data-anchor-id="sec-architecture"><span class="header-section-number">2</span> Architecture: One Channel, One Worker</h2>
+<p>Every client connection runs on its own goroutine, reading RESP commands off the socket. None of those goroutines touch the store directly. Instead, every command — plain, pipelined, or part of a transaction — gets wrapped into a request (holding the command itself, or a batch, or a pipeline, plus a reply channel) and dropped into a single shared, buffered channel. Exactly one goroutine, the dispatch worker, ever reads from that channel: it loops for as long as the channel stays open, pulls one request at a time, runs the appropriate command logic, and sends the result back down that request’s own reply channel.</p>
+<div class="cell" data-eval="true" data-layout-align="default">
+<div class="cell-output-display">
+<div>
+<p></p><figure class="figure"><p></p>
+<div>
+<pre class="mermaid mermaid-js">flowchart LR
+    C1[connection goroutines] --&gt;|CommandRequest| CH[(commandCh)]
+    C2[active expiry goroutine] --&gt;|CommandRequest| CH
+    CH --&gt; DW[dispatchWorker]
+    DW --&gt; STORE[(store.Default)]
+    DW -.only if --appendOnly.-&gt; AOF[(AOF file)]
+</pre>
 </div>
-<div class="listing-categories">
-
-<div class="listing-category" onclick="window.quartoListingCategory('bGxt'); return false;">llm</div>
-
-<div class="listing-category" onclick="window.quartoListingCategory('aW5mZXJlbmNl'); return false;">inference</div>
-
-<div class="listing-category" onclick="window.quartoListingCategory('dmxsbQ=='); return false;">vllm</div>
-
-<div class="listing-category" onclick="window.quartoListingCategory('cmF5LXNlcnZl'); return false;">ray-serve</div>
-
-<div class="listing-category" onclick="window.quartoListingCategory('bW9l'); return false;">moe</div>
-
-<div class="listing-category" onclick="window.quartoListingCategory('YmVuY2htYXJraW5n'); return false;">benchmarking</div>
-
-<div class="listing-category" onclick="window.quartoListingCategory('ZGVlcC1sZWFybmluZw=='); return false;">deep-learning</div>
-
-</div>
-<div class="delink listing-description"><a href="./posts/blog_second.html" class="no-external">
-These are our notes from benchmarking a self-hosted LLM inference stack. The goal was practical: figure out which combination of model, serving framework, and infrastructure…
-</a></div>
-</div>
-<div class="metadata">
-<a href="./posts/blog_second.html" class="no-external">
-<div class="listing-date">
-Apr 25, 2026
-</div>
-<div class="listing-author">
-Vinay Pandya, Yiran Xu
-</div>
-</a>
+<p></p><figcaption> Dispatch path: every producer funnels through one channel to one consumer</figcaption> </figure><p></p>
 </div>
 </div>
 </div>
-<div class="listing-no-matching d-none">No matching items</div>
-</div></main> <!-- /main -->
+<p>This is deliberate: the store is a plain map with <strong>zero locking</strong>. As long as exactly one goroutine ever touches it, that’s safe with no mutex required. The trade-off is that every command now has to travel through a channel to reach that goroutine — the connection goroutine sends its request and blocks until the worker sends a reply back, before it can write anything to the socket.</p>
+</section>
+<section id="sec-features" class="level2" data-number="3">
+<h2 data-number="3" class="anchored" data-anchor-id="sec-features"><span class="header-section-number">3</span> What’s Implemented</h2>
+<section id="persistence-and-expiry" class="level3" data-number="3.1">
+<h3 data-number="3.1" class="anchored" data-anchor-id="persistence-and-expiry"><span class="header-section-number">3.1</span> Persistence and expiry</h3>
+<p>Rediska supports an append-only file (AOF) mode: every write command is logged, and on startup the server replays the file to recover state. Keys can carry a TTL, and expiry is handled two ways — <strong>lazily</strong>, when a read touches an already-expired key, and <strong>actively</strong>, via a ticking goroutine that periodically sweeps the keyspace for expired entries and removes them (backing off once it stops finding many, the same general pattern real Redis uses).</p>
+</section>
+<section id="eviction-policies" class="level3" data-number="3.2">
+<h3 data-number="3.2" class="anchored" data-anchor-id="eviction-policies"><span class="header-section-number">3.2</span> Eviction policies</h3>
+<p>When a <code>maxmemory</code> limit is set, rediska supports both an approximate-LRU policy (sampling a handful of keys and evicting the least-recently-used among them, rather than tracking exact global recency) and an LFU policy with a logarithmic counter and configurable decay, matching the shape of Redis’s own LFU implementation. Memory usage is tracked per-key so eviction decisions have real data to sample from.</p>
+</section>
+<section id="transactions" class="level3" data-number="3.3">
+<h3 data-number="3.3" class="anchored" data-anchor-id="transactions"><span class="header-section-number">3.3</span> Transactions</h3>
+<p><code>MULTI</code>/<code>EXEC</code>/<code>DISCARD</code> are implemented via a small per-connection state machine. Every parsed command while inside a <code>MULTI</code> block is classified as either a normal command to queue (acknowledged with <code>+QUEUED</code>), a transaction-control reply that doesn’t touch the store, or <code>EXEC</code> itself — which sends the whole queued batch through the dispatch channel as one request. The worker runs every command in that batch back-to-back with nothing else able to interleave, and wraps the results into a single RESP array, matching Redis’s atomicity guarantee: a transaction executes as one indivisible block.</p>
+</section>
+<section id="hyperloglog" class="level3" data-number="3.4">
+<h3 data-number="3.4" class="anchored" data-anchor-id="hyperloglog"><span class="header-section-number">3.4</span> HyperLogLog</h3>
+<p>Rediska implements <code>PFADD</code>, <code>PFCOUNT</code>, and <code>PFMERGE</code> — a probabilistic cardinality estimator that lets you count approximately how many distinct elements have been added to a key using a fixed, small amount of memory regardless of how many elements go in. It supports both the sparse and dense internal encodings Redis itself uses (sparse for small cardinalities, promoting to dense as a key sees more distinct values), rather than always paying the dense representation’s memory cost upfront.</p>
+</section>
+<section id="pipelining" class="level3" data-number="3.5">
+<h3 data-number="3.5" class="anchored" data-anchor-id="pipelining"><span class="header-section-number">3.5</span> Pipelining</h3>
+<p>A pipelining client fires several commands without waiting for replies between them. After decoding one command, the connection handler checks whether more data is <em>already sitting in the read buffer</em> — meaning it arrived over the network already, no blocking read needed — and if so, keeps decoding into a batch instead of dispatching one command at a time. Once everything currently available is collected, the whole batch ships through the channel as a single request, and the worker concatenates each command’s individual reply into one response — one channel round trip for N commands instead of N.</p>
+</section>
+<section id="monitoring-and-graceful-shutdown" class="level3" data-number="3.6">
+<h3 data-number="3.6" class="anchored" data-anchor-id="monitoring-and-graceful-shutdown"><span class="header-section-number">3.6</span> Monitoring and graceful shutdown</h3>
+<p>An <code>INFO</code> command exposes keyspace and server stats in the format a Redis exporter expects, so Prometheus/Grafana can scrape it like real Redis. On shutdown (<code>SIGINT</code>/<code>SIGTERM</code>), the server stops accepting new connections, waits for every in-flight connection and the expiry goroutine to finish (tracked via a <code>sync.WaitGroup</code>), only then closes the dispatch channel, waits for the worker to fully drain it, and finally syncs and closes the AOF file — in that order, since each step depends on the one before it having actually completed, not just been requested.</p>
+<div class="cell" data-eval="true" data-layout-align="default">
+<div class="cell-output-display">
+<div>
+<p></p><figure class="figure"><p></p>
+<div>
+<pre class="mermaid mermaid-js">flowchart TD
+    SIG[SIGINT / SIGTERM] --&gt; CTX["ctx.Done() closes"]
+    CTX --&gt; L[listener: closes socket]
+    CTX --&gt; A[accept loop: sees ctx.Err]
+    CTX --&gt; CN[connections: watcher force-closes conn]
+    CTX --&gt; E[active expiry: exits select]
+    CN --&gt; WG["producers.Wait returns"]
+    E --&gt; WG
+    WG --&gt; CLOSE["close(commandCh)"]
+    CLOSE --&gt; WD["dispatchWorker drains channel, closes workerdone"]
+    WD --&gt; AOFC["AOF Sync() + Close()"]
+</pre>
+</div>
+<p></p><figcaption> How a SIGINT/SIGTERM signal fans out and drains the pipeline before shutdown</figcaption> </figure><p></p>
+</div>
+</div>
+</div>
+</section>
+</section>
+<section id="sec-comparison" class="level2" data-number="4">
+<h2 data-number="4" class="anchored" data-anchor-id="sec-comparison"><span class="header-section-number">4</span> How It Compares to Redis</h2>
+<p>Benchmarked with <code>redis-benchmark</code> against real Redis on the same machine. The starting point was roughly half of Redis’s throughput and double its latency. After a round of profiling-driven fixes — removing unconditional per-command debug logging, replacing per-command read-deadline syscalls with a single shutdown-watcher goroutine, pooling reply channels instead of allocating one per command, and reducing RESP parsing overhead — single-command (non-pipelined) throughput closed to roughly <strong>1.18x</strong> Redis’s, and pipelined throughput improved from around 60k requests/sec to <strong>300k+</strong>, once pipelined commands were batched into a single dispatch round trip instead of paying a channel handoff per command.</p>
+<p>There’s still a real, measurable gap on the non-pipelined path, and it’s worth being precise about where that’s likely coming from rather than assuming.</p>
+<section id="what-profiling-actually-showed" class="level3" data-number="4.1">
+<h3 data-number="4.1" class="anchored" data-anchor-id="what-profiling-actually-showed"><span class="header-section-number">4.1</span> What profiling actually showed</h3>
+<p>Here’s the CPU breakdown from an earlier profiling run (<code>go tool pprof</code>, ~20 seconds sampled under sustained <code>redis-benchmark</code> load), by line — I don’t have the raw trace files anymore, but the numbers are from that run:</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 33%">
+<col style="width: 33%">
+<col style="width: 33%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>Cost</th>
+<th>% of total CPU</th>
+<th>Cause</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>writer.Flush()</code></td>
+<td>37.6%</td>
+<td>The TCP write syscall for each reply — largely inherent to non-pipelined request/response</td>
+</tr>
+<tr class="even">
+<td><code>core.Decode()</code></td>
+<td>19.3%</td>
+<td>RESP parsing off the socket</td>
+</tr>
+<tr class="odd">
+<td><code>dispatchWorker</code> command dispatch</td>
+<td>6.4%</td>
+<td>Actual command execution (store lookup, RESP encode)</td>
+</tr>
+<tr class="even">
+<td>Channel send/recv/alloc (<code>replych</code>, <code>commandCh</code>)</td>
+<td>~4.7%</td>
+<td>The cost of handing each command off to the single dispatch worker via a channel</td>
+</tr>
+</tbody>
+</table>
+<p>Two things stand out. First, the single biggest cost (<code>writer.Flush()</code>) is largely inherent to a non-pipelined request/response protocol in general — every command needs its own network round trip, and Redis pays a version of this cost too, just without a userspace scheduler involved. Second, the channel-handoff cost, while real, was the smallest line item in that particular run — smaller than logging and deadline-polling overhead were before those got fixed. That’s a useful reminder: it’s easy to reason your way to “the channel design must be the bottleneck” from first principles (Go’s goroutine park/wake is genuinely more expensive than a C event loop’s inline execution), and that reasoning is sound, but the actual weight of that cost in the total budget is something only a fresh profile can confirm — not intuition.</p>
+<div class="callout callout-style-default callout-tip callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Tip</span>Why real Redis doesn’t pay the channel cost
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>Redis is also single-threaded for command execution — one command at a time, same as rediska’s one-worker model. But it runs inside a plain C event loop calling <code>epoll_wait</code>, with no second thread to hand a command off to. Rediska’s design adds a cross-goroutine hop through a channel for every command, which the Go runtime implements via a goroutine park/wake cycle — real overhead, even if the profile above shows it isn’t currently the dominant one.</p>
+</div>
+</div>
+</section>
+</section>
+<section id="sec-next-testing" class="level2" data-number="5">
+<h2 data-number="5" class="anchored" data-anchor-id="sec-next-testing"><span class="header-section-number">5</span> What’s Left to Test</h2>
+<p>A few things would sharpen this picture rather than leave it at “roughly 1.18x slower”:</p>
+<ol type="1">
+<li><strong>Re-profile on current code.</strong> The breakdown above predates some of the later fixes; a fresh <code>pprof</code> run under the same <code>redis-benchmark</code> load would show whether the channel-handoff share has grown relative to <code>Flush</code>/<code>Decode</code> now that logging and deadline overhead are gone.</li>
+<li><strong>Try a mutex-guarded direct-dispatch path as an experiment</strong>, comparing it against the current channel design under identical load, to get a real before/after number rather than an estimate.</li>
+<li><strong>Benchmark a wider command set.</strong> Current numbers are mostly SET/GET/INCR; transactions, HyperLogLog, and pipelined batches with mixed command types haven’t been benchmarked in isolation yet.</li>
+<li><strong>Test under memory pressure.</strong> Exercise the LRU/LFU eviction paths under a constrained <code>maxmemory</code> with realistic access patterns, not just correctness tests, to see how eviction sampling overhead behaves under load.</li>
+<li><strong>Test AOF durability under load and crash.</strong> Recovery correctness has been checked; recovery time and AOF write overhead under sustained write-heavy load haven’t been measured.</li>
+<li><strong>Scale concurrent clients further.</strong> Current benchmarks use a fixed concurrency level; sweeping connection counts would show whether the gap to Redis widens, narrows, or stays flat as concurrency increases.</li>
+</ol>
+</section>
+<section id="sec-appendix" class="level2" data-number="6">
+<h2 data-number="6" class="anchored" data-anchor-id="sec-appendix"><span class="header-section-number">6</span> Appendix: Repository</h2>
+<p>Code referenced in this post is from <a href="https://github.com/vinayhpandya/learning-redis">vinayhpandya/learning-redis</a>.</p>
+
+
+</section>
+
+</main> <!-- /main -->
 <script id="quarto-html-after-body" type="application/javascript">
   window.document.addEventListener("DOMContentLoaded", function (event) {
     // Ensure there is a toggle, if there isn't float one in the top right
