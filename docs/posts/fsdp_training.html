@@ -1,0 +1,1834 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.8.27">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+<meta name="author" content="Vinay Pandya">
+<meta name="dcterms.date" content="2026-09-12">
+
+<title>Fitting a 3B Model on Two GPUs with FSDP: A Practical Walkthrough – Vinay Pandya</title>
+<style>
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="../site_libs/quarto-nav/quarto-nav.js"></script>
+<script src="../site_libs/quarto-nav/headroom.min.js"></script>
+<script src="../site_libs/clipboard/clipboard.min.js"></script>
+<script src="../site_libs/quarto-search/autocomplete.umd.js"></script>
+<script src="../site_libs/quarto-search/fuse.min.js"></script>
+<script src="../site_libs/quarto-search/quarto-search.js"></script>
+<meta name="quarto:offset" content="../">
+<script src="../site_libs/quarto-html/quarto.js" type="module"></script>
+<script src="../site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="../site_libs/quarto-html/axe/axe-check.js" type="module"></script>
+<script src="../site_libs/quarto-html/popper.min.js"></script>
+<script src="../site_libs/quarto-html/tippy.umd.min.js"></script>
+<script src="../site_libs/quarto-html/anchor.min.js"></script>
+<link href="../site_libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-8b4baf804e461d9b72633f0de59a0cac.css" rel="stylesheet" class="quarto-color-scheme" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-dark-f1aadacce99040138bbb613f9330654f.css" rel="stylesheet" class="quarto-color-scheme quarto-color-alternate" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-8b4baf804e461d9b72633f0de59a0cac.css" rel="stylesheet" class="quarto-color-scheme-extra" id="quarto-text-highlighting-styles">
+<script src="../site_libs/bootstrap/bootstrap.min.js"></script>
+<link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="../site_libs/bootstrap/bootstrap-3bbbbd466991e281563892c5dce73c3d.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-dark-4990a151d59038663a44b02348f88d08.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="dark">
+<link href="../site_libs/bootstrap/bootstrap-3bbbbd466991e281563892c5dce73c3d.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme-extra" id="quarto-bootstrap" data-mode="light">
+<script id="quarto-search-options" type="application/json">{
+  "location": "navbar",
+  "copy-button": false,
+  "collapse-after": 3,
+  "panel-placement": "end",
+  "type": "overlay",
+  "limit": 50,
+  "keyboard-shortcut": [
+    "f",
+    "/",
+    "s"
+  ],
+  "show-item-context": false,
+  "language": {
+    "search-no-results-text": "No results",
+    "search-matching-documents-text": "matching documents",
+    "search-copy-link-title": "Copy link to search",
+    "search-hide-matches-text": "Hide additional matches",
+    "search-more-match-text": "more match in this document",
+    "search-more-matches-text": "more matches in this document",
+    "search-clear-button-title": "Clear",
+    "search-text-placeholder": "",
+    "search-detached-cancel-button-title": "Cancel",
+    "search-submit-button-title": "Submit",
+    "search-label": "Search"
+  }
+}</script>
+<meta name="mermaid-theme" content="default">
+<script src="../site_libs/quarto-diagram/mermaid.min.js"></script>
+<script src="../site_libs/quarto-diagram/mermaid-init.js"></script>
+<link href="../site_libs/quarto-diagram/mermaid.css" rel="stylesheet">
+
+  <script src="https://cdnjs.cloudflare.com/polyfill/v3/polyfill.min.js?features=es6"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml-full.js" type="text/javascript"></script>
+
+<script type="text/javascript">
+const typesetMath = (el) => {
+  if (window.MathJax) {
+    // MathJax Typeset
+    window.MathJax.typeset([el]);
+  } else if (window.katex) {
+    // KaTeX Render
+    var mathElements = el.getElementsByClassName("math");
+    var macros = [];
+    for (var i = 0; i < mathElements.length; i++) {
+      var texText = mathElements[i].firstChild;
+      if (mathElements[i].tagName == "SPAN" && texText && texText.data) {
+        window.katex.render(texText.data, mathElements[i], {
+          displayMode: mathElements[i].classList.contains('display'),
+          throwOnError: false,
+          macros: macros,
+          fleqn: false
+        });
+      }
+    }
+  }
+}
+window.Quarto = {
+  typesetMath
+};
+</script>
+
+<link rel="stylesheet" href="../styles.css">
+</head>
+
+<body class="nav-fixed quarto-light"><script id="quarto-html-before-body" type="application/javascript">
+    const toggleBodyColorMode = (bsSheetEl) => {
+      const mode = bsSheetEl.getAttribute("data-mode");
+      const bodyEl = window.document.querySelector("body");
+      if (mode === "dark") {
+        bodyEl.classList.add("quarto-dark");
+        bodyEl.classList.remove("quarto-light");
+      } else {
+        bodyEl.classList.add("quarto-light");
+        bodyEl.classList.remove("quarto-dark");
+      }
+    }
+    const toggleBodyColorPrimary = () => {
+      const bsSheetEl = window.document.querySelector("link#quarto-bootstrap:not([rel=disabled-stylesheet])");
+      if (bsSheetEl) {
+        toggleBodyColorMode(bsSheetEl);
+      }
+    }
+    const setColorSchemeToggle = (alternate) => {
+      const toggles = window.document.querySelectorAll('.quarto-color-scheme-toggle');
+      for (let i=0; i < toggles.length; i++) {
+        const toggle = toggles[i];
+        if (toggle) {
+          if (alternate) {
+            toggle.classList.add("alternate");
+          } else {
+            toggle.classList.remove("alternate");
+          }
+        }
+      }
+    };
+    const toggleColorMode = (alternate) => {
+      // Switch the stylesheets
+      const primaryStylesheets = window.document.querySelectorAll('link.quarto-color-scheme:not(.quarto-color-alternate)');
+      const alternateStylesheets = window.document.querySelectorAll('link.quarto-color-scheme.quarto-color-alternate');
+      manageTransitions('#quarto-margin-sidebar .nav-link', false);
+      if (alternate) {
+        // note: dark is layered on light, we don't disable primary!
+        enableStylesheet(alternateStylesheets);
+        for (const sheetNode of alternateStylesheets) {
+          if (sheetNode.id === "quarto-bootstrap") {
+            toggleBodyColorMode(sheetNode);
+          }
+        }
+      } else {
+        disableStylesheet(alternateStylesheets);
+        enableStylesheet(primaryStylesheets)
+        toggleBodyColorPrimary();
+      }
+      manageTransitions('#quarto-margin-sidebar .nav-link', true);
+      // Switch the toggles
+      setColorSchemeToggle(alternate)
+      // Hack to workaround the fact that safari doesn't
+      // properly recolor the scrollbar when toggling (#1455)
+      if (navigator.userAgent.indexOf('Safari') > 0 && navigator.userAgent.indexOf('Chrome') == -1) {
+        manageTransitions("body", false);
+        window.scrollTo(0, 1);
+        setTimeout(() => {
+          window.scrollTo(0, 0);
+          manageTransitions("body", true);
+        }, 40);
+      }
+    }
+    const disableStylesheet = (stylesheets) => {
+      for (let i=0; i < stylesheets.length; i++) {
+        const stylesheet = stylesheets[i];
+        stylesheet.rel = 'disabled-stylesheet';
+      }
+    }
+    const enableStylesheet = (stylesheets) => {
+      for (let i=0; i < stylesheets.length; i++) {
+        const stylesheet = stylesheets[i];
+        if(stylesheet.rel !== 'stylesheet') { // for Chrome, which will still FOUC without this check
+          stylesheet.rel = 'stylesheet';
+        }
+      }
+    }
+    const manageTransitions = (selector, allowTransitions) => {
+      const els = window.document.querySelectorAll(selector);
+      for (let i=0; i < els.length; i++) {
+        const el = els[i];
+        if (allowTransitions) {
+          el.classList.remove('notransition');
+        } else {
+          el.classList.add('notransition');
+        }
+      }
+    }
+    const isFileUrl = () => {
+      return window.location.protocol === 'file:';
+    }
+    const hasAlternateSentinel = () => {
+      let styleSentinel = getColorSchemeSentinel();
+      if (styleSentinel !== null) {
+        return styleSentinel === "alternate";
+      } else {
+        return false;
+      }
+    }
+    const setStyleSentinel = (alternate) => {
+      const value = alternate ? "alternate" : "default";
+      if (!isFileUrl()) {
+        window.localStorage.setItem("quarto-color-scheme", value);
+      } else {
+        localAlternateSentinel = value;
+      }
+    }
+    const getColorSchemeSentinel = () => {
+      if (!isFileUrl()) {
+        const storageValue = window.localStorage.getItem("quarto-color-scheme");
+        return storageValue != null ? storageValue : localAlternateSentinel;
+      } else {
+        return localAlternateSentinel;
+      }
+    }
+    const toggleGiscusIfUsed = (isAlternate, darkModeDefault) => {
+      const baseTheme = document.querySelector('#giscus-base-theme')?.value ?? 'light';
+      const alternateTheme = document.querySelector('#giscus-alt-theme')?.value ?? 'dark';
+      let newTheme = '';
+      if(authorPrefersDark) {
+        newTheme = isAlternate ? baseTheme : alternateTheme;
+      } else {
+        newTheme = isAlternate ? alternateTheme : baseTheme;
+      }
+      const changeGiscusTheme = () => {
+        // From: https://github.com/giscus/giscus/issues/336
+        const sendMessage = (message) => {
+          const iframe = document.querySelector('iframe.giscus-frame');
+          if (!iframe) return;
+          iframe.contentWindow.postMessage({ giscus: message }, 'https://giscus.app');
+        }
+        sendMessage({
+          setConfig: {
+            theme: newTheme
+          }
+        });
+      }
+      const isGiscussLoaded = window.document.querySelector('iframe.giscus-frame') !== null;
+      if (isGiscussLoaded) {
+        changeGiscusTheme();
+      }
+    };
+    const authorPrefersDark = false;
+    const darkModeDefault = authorPrefersDark;
+      document.querySelector('link#quarto-text-highlighting-styles.quarto-color-scheme-extra').rel = 'disabled-stylesheet';
+      document.querySelector('link#quarto-bootstrap.quarto-color-scheme-extra').rel = 'disabled-stylesheet';
+    let localAlternateSentinel = darkModeDefault ? 'alternate' : 'default';
+    // Dark / light mode switch
+    window.quartoToggleColorScheme = () => {
+      // Read the current dark / light value
+      let toAlternate = !hasAlternateSentinel();
+      toggleColorMode(toAlternate);
+      setStyleSentinel(toAlternate);
+      toggleGiscusIfUsed(toAlternate, darkModeDefault);
+      window.dispatchEvent(new Event('resize'));
+    };
+    // Switch to dark mode if need be
+    if (hasAlternateSentinel()) {
+      toggleColorMode(true);
+    } else {
+      toggleColorMode(false);
+    }
+  </script>
+
+<div id="quarto-search-results"></div>
+  <header id="quarto-header" class="headroom fixed-top">
+    <nav class="navbar navbar-expand-lg " data-bs-theme="dark">
+      <div class="navbar-container container-fluid">
+      <div class="navbar-brand-container mx-auto">
+    <a class="navbar-brand" href="../index.html">
+    <span class="navbar-title">Vinay Pandya</span>
+    </a>
+  </div>
+            <div id="quarto-search" class="" title="Search"></div>
+          <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarCollapse" aria-controls="navbarCollapse" role="menu" aria-expanded="false" aria-label="Toggle navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+  <span class="navbar-toggler-icon"></span>
+</button>
+          <div class="collapse navbar-collapse" id="navbarCollapse">
+            <ul class="navbar-nav navbar-nav-scroll me-auto">
+  <li class="nav-item">
+    <a class="nav-link" href="../index.html"> 
+<span class="menu-text">About</span></a>
+  </li>  
+  <li class="nav-item">
+    <a class="nav-link" href="../experience.html"> 
+<span class="menu-text">Experience</span></a>
+  </li>  
+  <li class="nav-item">
+    <a class="nav-link" href="../projects.html"> 
+<span class="menu-text">Projects</span></a>
+  </li>  
+  <li class="nav-item">
+    <a class="nav-link" href="../blog.html"> 
+<span class="menu-text">Blog</span></a>
+  </li>  
+</ul>
+            <ul class="navbar-nav navbar-nav-scroll ms-auto">
+  <li class="nav-item compact">
+    <a class="nav-link" href="https://github.com/vinayhpandya"> <i class="bi bi-github" role="img">
+</i> 
+<span class="menu-text"></span></a>
+  </li>  
+  <li class="nav-item compact">
+    <a class="nav-link" href="https://www.linkedin.com/in/vinay-pandya-299aa8131/"> <i class="bi bi-linkedin" role="img">
+</i> 
+<span class="menu-text"></span></a>
+  </li>  
+  <li class="nav-item compact">
+    <a class="nav-link" href="mailto:vinayharshadpandya27@gmail.com"> <i class="bi bi-envelope" role="img">
+</i> 
+<span class="menu-text"></span></a>
+  </li>  
+</ul>
+          </div> <!-- /navcollapse -->
+            <div class="quarto-navbar-tools">
+  <a href="" class="quarto-color-scheme-toggle quarto-navigation-tool  px-1" onclick="window.quartoToggleColorScheme(); return false;" title="Toggle dark mode"><i class="bi"></i></a>
+</div>
+      </div> <!-- /container-fluid -->
+    </nav>
+</header>
+<!-- content -->
+<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article page-navbar">
+<!-- sidebar -->
+<!-- margin-sidebar -->
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">On this page</h2>
+   
+  <ul>
+  <li><a href="#introduction" id="toc-introduction" class="nav-link active" data-scroll-target="#introduction"><span class="header-section-number">1</span> Introduction</a></li>
+  <li><a href="#why-the-model-doesnt-fit-where-the-memory-goes" id="toc-why-the-model-doesnt-fit-where-the-memory-goes" class="nav-link" data-scroll-target="#why-the-model-doesnt-fit-where-the-memory-goes"><span class="header-section-number">2</span> Why the model doesn’t fit: where the memory goes</a>
+  <ul class="collapse">
+  <li><a href="#why-this-rules-out-a-single-gpu-full-replica" id="toc-why-this-rules-out-a-single-gpu-full-replica" class="nav-link" data-scroll-target="#why-this-rules-out-a-single-gpu-full-replica"><span class="header-section-number">2.1</span> Why this rules out a single-GPU full replica</a></li>
+  </ul></li>
+  <li><a href="#what-fsdp-does-about-it" id="toc-what-fsdp-does-about-it" class="nav-link" data-scroll-target="#what-fsdp-does-about-it"><span class="header-section-number">3</span> What FSDP does about it</a></li>
+  <li><a href="#configuring-fsdp-with-the-hf-trainer" id="toc-configuring-fsdp-with-the-hf-trainer" class="nav-link" data-scroll-target="#configuring-fsdp-with-the-hf-trainer"><span class="header-section-number">4</span> Configuring FSDP with the HF Trainer</a></li>
+  <li><a href="#the-gotchas-this-is-the-useful-part" id="toc-the-gotchas-this-is-the-useful-part" class="nav-link" data-scroll-target="#the-gotchas-this-is-the-useful-part"><span class="header-section-number">5</span> The gotchas (this is the useful part)</a>
+  <ul class="collapse">
+  <li><a href="#gotcha-1-fsdp2s-dtensor-error-after-the-first-eval" id="toc-gotcha-1-fsdp2s-dtensor-error-after-the-first-eval" class="nav-link" data-scroll-target="#gotcha-1-fsdp2s-dtensor-error-after-the-first-eval"><span class="header-section-number">5.1</span> Gotcha 1 — FSDP2’s DTensor error after the first eval</a></li>
+  <li><a href="#gotcha-2-checkpoint-save-fills-the-disk-and-truncates" id="toc-gotcha-2-checkpoint-save-fills-the-disk-and-truncates" class="nav-link" data-scroll-target="#gotcha-2-checkpoint-save-fills-the-disk-and-truncates"><span class="header-section-number">5.2</span> Gotcha 2 — checkpoint save fills the disk and truncates</a></li>
+  <li><a href="#gotcha-3-metrics-logged-to-the-wrong-place" id="toc-gotcha-3-metrics-logged-to-the-wrong-place" class="nav-link" data-scroll-target="#gotcha-3-metrics-logged-to-the-wrong-place"><span class="header-section-number">5.3</span> Gotcha 3 — metrics logged to the wrong place</a></li>
+  </ul></li>
+  <li><a href="#benchmarking-the-fsdp-run" id="toc-benchmarking-the-fsdp-run" class="nav-link" data-scroll-target="#benchmarking-the-fsdp-run"><span class="header-section-number">6</span> Benchmarking the FSDP run</a>
+  <ul class="collapse">
+  <li><a href="#reading-the-profiler-trace" id="toc-reading-the-profiler-trace" class="nav-link" data-scroll-target="#reading-the-profiler-trace"><span class="header-section-number">6.1</span> Reading the profiler trace</a></li>
+  </ul></li>
+  <li><a href="#recommendations" id="toc-recommendations" class="nav-link" data-scroll-target="#recommendations"><span class="header-section-number">7</span> Recommendations</a></li>
+  <li><a href="#lessons-learned" id="toc-lessons-learned" class="nav-link" data-scroll-target="#lessons-learned"><span class="header-section-number">8</span> Lessons learned</a></li>
+  <li><a href="#appendix-reproduction" id="toc-appendix-reproduction" class="nav-link" data-scroll-target="#appendix-reproduction"><span class="header-section-number">9</span> Appendix: reproduction</a></li>
+  </ul>
+</nav>
+    </div>
+<!-- main -->
+<main class="content" id="quarto-document-content">
+
+
+<header id="title-block-header" class="quarto-title-block default">
+<div class="quarto-title">
+<div class="quarto-title-block"><div><h1 class="title">Fitting a 3B Model on Two GPUs with FSDP: A Practical Walkthrough</h1><button type="button" class="btn code-tools-button dropdown-toggle" id="quarto-code-tools-menu" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi"></i> Code</button><ul class="dropdown-menu dropdown-menu-end" aria-labelelledby="quarto-code-tools-menu"><li><a id="quarto-show-all-code" class="dropdown-item" href="javascript:void(0)" role="button">Show All Code</a></li><li><a id="quarto-hide-all-code" class="dropdown-item" href="javascript:void(0)" role="button">Hide All Code</a></li><li><hr class="dropdown-divider"></li><li><a id="quarto-view-source" class="dropdown-item" href="javascript:void(0)" role="button">View Source</a></li></ul></div></div>
+  <div class="quarto-categories">
+    <div class="quarto-category">fsdp</div>
+    <div class="quarto-category">distributed-training</div>
+    <div class="quarto-category">pytorch</div>
+    <div class="quarto-category">llm</div>
+    <div class="quarto-category">fine-tuning</div>
+    <div class="quarto-category">modal</div>
+  </div>
+  </div>
+
+
+
+<div class="quarto-title-meta">
+
+    <div>
+    <div class="quarto-title-meta-heading">Author</div>
+    <div class="quarto-title-meta-contents">
+             <p>Vinay Pandya </p>
+          </div>
+  </div>
+    
+    <div>
+    <div class="quarto-title-meta-heading">Published</div>
+    <div class="quarto-title-meta-contents">
+      <p class="date">September 12, 2026</p>
+    </div>
+  </div>
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<section id="introduction" class="level2" data-number="1">
+<h2 data-number="1" class="anchored" data-anchor-id="introduction"><span class="header-section-number">1</span> Introduction</h2>
+<p>These are my notes from fine-tuning <a href="https://huggingface.co/HuggingFaceTB/SmolLM3-3B">SmolLM3-3B</a> on a medical Q&amp;A dataset across two GPUs using <strong>FSDP</strong> (Fully Sharded Data Parallel). The goal was practical: understand what FSDP actually does to memory, why it’s <em>necessary</em> here rather than optional, and what breaks along the way.</p>
+<p>The motivating constraint is concrete. A 3B model sounds small — 6 GB of weights in bf16 — so surely it trains on any modern GPU. It doesn’t. On the A100-40GB I was running, the naive full-replica approach doesn’t fit at all. FSDP is what makes this model trainable on that hardware, and understanding <em>why</em> is the whole point.</p>
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>What this post is
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>The reasoning and the gotchas behind one real FSDP run, using Hugging Face’s <code>Trainer</code> / TRL <code>SFTTrainer</code> where FSDP is configured rather than hand-written. Code lives at the end.</p>
+</div>
+</div>
+</section>
+<section id="why-the-model-doesnt-fit-where-the-memory-goes" class="level2" data-number="2">
+<h2 data-number="2" class="anchored" data-anchor-id="why-the-model-doesnt-fit-where-the-memory-goes"><span class="header-section-number">2</span> Why the model doesn’t fit: where the memory goes</h2>
+<p>The intuition that trips people up: parameter count barely predicts training memory. The weights are the <em>small</em> part. Everything around them — gradients and, above all, the optimizer state — is what fills the GPU.</p>
+<p>For a model with <span class="math inline">\(P\)</span> parameters trained with Adam in mixed precision, the <em>static</em> per-GPU cost — present before a single activation — looks like this:</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>Component</th>
+<th>Precision</th>
+<th>Bytes/param</th>
+<th>For 3B</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Weights</td>
+<td>bf16</td>
+<td>2</td>
+<td>~6 GB</td>
+</tr>
+<tr class="even">
+<td>Gradients</td>
+<td>bf16</td>
+<td>2</td>
+<td>~6 GB</td>
+</tr>
+<tr class="odd">
+<td>Adam moment <code>m</code></td>
+<td>fp32</td>
+<td>4</td>
+<td>~12 GB</td>
+</tr>
+<tr class="even">
+<td>Adam variance <code>v</code></td>
+<td>fp32</td>
+<td>4</td>
+<td>~12 GB</td>
+</tr>
+<tr class="odd">
+<td><strong>Static total</strong></td>
+<td></td>
+<td><strong>~12</strong></td>
+<td><strong>~36 GB</strong></td>
+</tr>
+</tbody>
+</table>
+<p>Activations sit on top of that (gradient checkpointing keeps them small). So the <em>real</em> number to plan around is ~36–42 GB, not 6 GB.</p>
+<div id="memory-model" class="cell" data-execution_count="1">
+<details open="" class="code-fold">
+<summary>Code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> static_memory_gb(params_billion, num_gpus<span class="op">=</span><span class="dv">1</span>, sharded<span class="op">=</span><span class="va">False</span>):</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>    <span class="co">"""Rough per-GPU static training memory (weights + grads + Adam), mixed precision."""</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    P <span class="op">=</span> params_billion <span class="op">*</span> <span class="fl">1e9</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    weights <span class="op">=</span> <span class="dv">2</span> <span class="op">*</span> P      <span class="co"># bf16</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    grads   <span class="op">=</span> <span class="dv">2</span> <span class="op">*</span> P      <span class="co"># bf16</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    adam    <span class="op">=</span> <span class="dv">8</span> <span class="op">*</span> P      <span class="co"># fp32 m + fp32 v</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    total_bytes <span class="op">=</span> weights <span class="op">+</span> grads <span class="op">+</span> adam</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> sharded:</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>        total_bytes <span class="op">/=</span> num_gpus   <span class="co"># FSDP: sharded across ranks</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> total_bytes <span class="op">/</span> <span class="fl">1e9</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"full replica, 1 GPU: ~</span><span class="sc">{</span>static_memory_gb(<span class="dv">3</span>)<span class="sc">:.0f}</span><span class="ss"> GB"</span>)</span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"FSDP sharded, 2 GPU: ~</span><span class="sc">{</span>static_memory_gb(<span class="dv">3</span>, num_gpus<span class="op">=</span><span class="dv">2</span>, sharded<span class="op">=</span><span class="va">True</span>)<span class="sc">:.0f}</span><span class="ss"> GB"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<section id="why-this-rules-out-a-single-gpu-full-replica" class="level3" data-number="2.1">
+<h3 data-number="2.1" class="anchored" data-anchor-id="why-this-rules-out-a-single-gpu-full-replica"><span class="header-section-number">2.1</span> Why this rules out a single-GPU full replica</h3>
+<p>That ~36–42 GB peak lands right on top of a 40 GB card’s ceiling — no room for activations, CUDA context, or NCCL buffers. In practice it OOMs. The table shows how tight it is:</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 7%">
+<col style="width: 8%">
+<col style="width: 40%">
+<col style="width: 44%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>GPU</th>
+<th>VRAM</th>
+<th>Full replica (~40 GB peak)</th>
+<th>FSDP sharded / 2 GPU (~18 GB)</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>A10G</td>
+<td>24 GB</td>
+<td>❌ OOM</td>
+<td>✅</td>
+</tr>
+<tr class="even">
+<td>A100 40 GB</td>
+<td>40 GB</td>
+<td>❌ OOM / knife-edge</td>
+<td>✅</td>
+</tr>
+<tr class="odd">
+<td>L40S</td>
+<td>48 GB</td>
+<td>✅ (small headroom)</td>
+<td>✅</td>
+</tr>
+<tr class="even">
+<td>A100 80 GB</td>
+<td>80 GB</td>
+<td>✅ comfortable</td>
+<td>✅</td>
+</tr>
+</tbody>
+</table>
+<div class="callout callout-style-default callout-warning callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Warning</span>Batch size is the wrong lever
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>When you OOM, the reflex is to drop the batch size. But batch size only scales <em>activation</em> memory — the small part, especially with gradient checkpointing on. The ~36 GB of weights + grads + optimizer state doesn’t move. If the static cost doesn’t fit, <strong>sharding is the fix, not a smaller batch.</strong></p>
+</div>
+</div>
+</section>
+</section>
+<section id="what-fsdp-does-about-it" class="level2" data-number="3">
+<h2 data-number="3" class="anchored" data-anchor-id="what-fsdp-does-about-it"><span class="header-section-number">3</span> What FSDP does about it</h2>
+<p>FSDP’s core idea: don’t keep a full copy of the model on every GPU. Partition the weights, gradients, and optimizer state across the ranks, and reconstruct each layer’s full weights <em>just in time</em> for the forward and backward pass, then throw them away again.</p>
+<div class="cell" data-eval="true" data-layout-align="default">
+<div class="cell-output-display">
+<div>
+<p></p><figure class="figure"><p></p>
+<div>
+<pre class="mermaid mermaid-js">flowchart TB
+    B1[Shard 0&lt;br/&gt;GPU 0] -- all-gather weights --&gt; B3[Full layer&lt;br/&gt;forward / backward]
+    B2[Shard 1&lt;br/&gt;GPU 1] -- all-gather weights --&gt; B3
+    B3 -- reduce-scatter grads --&gt; B1
+    B3 -- reduce-scatter grads --&gt; B2
+</pre>
+</div>
+<p></p><figcaption> FSDP: parameters live sharded, gathered per-layer on demand</figcaption> </figure><p></p>
+</div>
+</div>
+</div>
+<p>Concretely, per training step FSDP:</p>
+<ol type="1">
+<li><strong>All-gathers</strong> each layer’s sharded weights into the full layer, right before it’s needed.</li>
+<li>Runs forward / backward on the full layer, then <strong>frees</strong> the gathered weights.</li>
+<li><strong>Reduce-scatters</strong> the gradients back down to shards.</li>
+<li>Keeps only its shard of the optimizer state.</li>
+</ol>
+<p>The result on 2 GPUs: that ~36 GB static cost becomes ~18 GB per GPU. The price is communication — the all-gathers and reduce-scatters are extra traffic every step. That’s the fundamental FSDP trade: <strong>communication in exchange for memory.</strong> When the model won’t fit otherwise, it’s a trade you happily take, because the alternative is not training at all.</p>
+</section>
+<section id="configuring-fsdp-with-the-hf-trainer" class="level2" data-number="4">
+<h2 data-number="4" class="anchored" data-anchor-id="configuring-fsdp-with-the-hf-trainer"><span class="header-section-number">4</span> Configuring FSDP with the HF Trainer</h2>
+<p>The relevant switch in <code>SFTConfig</code> / <code>TrainingArguments</code>:</p>
+<div id="fsdp-config" class="cell" data-execution_count="2">
+<details open="" class="code-fold">
+<summary>Code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb2"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>fsdp_arg <span class="op">=</span> <span class="st">"full_shard auto_wrap"</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>fsdp_config <span class="op">=</span> {</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Force FSDP1 (flat params) instead of FSDP2 (DTensor). See gotcha #1 below.</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>    <span class="st">"fsdp_version"</span>: <span class="dv">1</span>,</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Wrap at the model's actual decoder-layer class -- NOT "LlamaDecoderLayer".</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Auto-wrap needs the right class name to find shard boundaries.</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>    <span class="st">"fsdp_transformer_layer_cls_to_wrap"</span>: [<span class="st">"SmolLM3DecoderLayer"</span>],</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>    <span class="st">"fsdp_backward_prefetch"</span>: <span class="st">"backward_pre"</span>,   <span class="co"># overlap comms with compute</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>    <span class="st">"fsdp_state_dict_type"</span>: <span class="st">"SHARDED_STATE_DICT"</span>,</span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>    <span class="st">"fsdp_offload_params"</span>: <span class="va">False</span>,               <span class="co"># True if you're still OOMing</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<p>Two details that matter more than they look:</p>
+<ol type="1">
+<li><strong>The wrap class must be exact.</strong> For SmolLM3 it’s <code>SmolLM3DecoderLayer</code>, not the Llama name you might copy from a tutorial. Get it wrong and auto-wrap can’t find layer boundaries to shard at — you silently lose most of the memory savings.</li>
+<li><strong><code>fsdp_offload_params=True</code></strong> is your escape hatch if even sharded params don’t fit — it pushes them to CPU RAM at a throughput cost. The last resort before “get a bigger GPU.”</li>
+</ol>
+</section>
+<section id="the-gotchas-this-is-the-useful-part" class="level2" data-number="5">
+<h2 data-number="5" class="anchored" data-anchor-id="the-gotchas-this-is-the-useful-part"><span class="header-section-number">5</span> The gotchas (this is the useful part)</h2>
+<p>Getting FSDP <em>configured</em> was easy. Getting a run to actually finish surfaced three failures that no tutorial warned me about. Each looked scary and had a one-line fix.</p>
+<section id="gotcha-1-fsdp2s-dtensor-error-after-the-first-eval" class="level3" data-number="5.1">
+<h3 data-number="5.1" class="anchored" data-anchor-id="gotcha-1-fsdp2s-dtensor-error-after-the-first-eval"><span class="header-section-number">5.1</span> Gotcha 1 — FSDP2’s DTensor error after the first eval</h3>
+<p>The run trained cleanly for ~100 steps, ran a full eval, then died:</p>
+<pre><code>RuntimeError: aten.embedding.default: got mixed torch.Tensor and DTensor,
+need to convert all torch.Tensor to DTensor before calling distributed operators!</code></pre>
+<p>Modern FSDP (<strong>FSDP2</strong>, <code>fully_shard</code>) represents sharded params as <code>DTensor</code>. Some params — notably tied embeddings — can end up as plain <code>torch.Tensor</code> while the rest are <code>DTensor</code>, and the <em>next</em> forward after an eval/checkpoint cycle mixes the two. It characteristically fires right after the first eval, which is why it ran fine for 100 steps first.</p>
+<div class="callout callout-style-default callout-tip callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Tip</span>Fix
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>Pin FSDP1: <code>"fsdp_version": 1</code>. FSDP1 uses flat parameters, not <code>DTensor</code>, so the mixed-tensor path can’t occur. (Tracked upstream in <a href="https://github.com/huggingface/transformers/issues/42417">transformers #42417</a> and <a href="https://github.com/pytorch/pytorch/issues/153354">pytorch #153354</a>.)</p>
+</div>
+</div>
+</section>
+<section id="gotcha-2-checkpoint-save-fills-the-disk-and-truncates" class="level3" data-number="5.2">
+<h3 data-number="5.2" class="anchored" data-anchor-id="gotcha-2-checkpoint-save-fills-the-disk-and-truncates"><span class="header-section-number">5.2</span> Gotcha 2 — checkpoint save fills the disk and truncates</h3>
+<p>With FSDP1 in place, the run then crashed at the first checkpoint save:</p>
+<pre><code>save_fsdp_optimizer → dist_cp.save → torch.save → write_end_of_file()
+RuntimeError: [enforce fail at inline_container.cc:626] . unexpected pos 448 vs 342</code></pre>
+<p>That <code>unexpected pos</code> from torch’s <code>inline_container</code> is a <strong>truncated write</strong> — the file write failed partway. The cause: an FSDP checkpoint saves weights <em>plus</em> the full fp32 Adam state (~30 GB+ for 3B), and that overflowed the container’s ephemeral disk on the first save. Ironically, the same optimizer state that forces you to use FSDP is also what blows up the checkpoint.</p>
+<div class="callout callout-style-default callout-tip callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Tip</span>Fix
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>If you only want the final model, stop periodic checkpoints entirely: <code>save_strategy="no"</code>. The explicit <code>save_model()</code> + <code>push_to_hub()</code> at the end still run. For crash-resilient long runs, instead mount a large <strong>volume</strong> at <code>output_dir</code> so there’s real disk to write to.</p>
+</div>
+</div>
+</section>
+<section id="gotcha-3-metrics-logged-to-the-wrong-place" class="level3" data-number="5.3">
+<h3 data-number="5.3" class="anchored" data-anchor-id="gotcha-3-metrics-logged-to-the-wrong-place"><span class="header-section-number">5.3</span> Gotcha 3 — metrics logged to the wrong place</h3>
+<p>Training metrics weren’t showing on the dashboard. The logs revealed <em>two</em> separate experiment-tracker sessions: a manual <code>init()</code> that got closed before training, and the <code>Trainer</code>’s built-in callback — which does its own <code>init()</code> and reads its target from <strong>environment variables</strong>, defaulting to a <em>local</em> directory inside the container that’s discarded when the job ends.</p>
+<div class="callout callout-style-default callout-tip callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Tip</span>Fix
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>Don’t hand-roll a second tracker session. Set the env vars the callback actually reads (e.g.&nbsp;<code>TRACKIO_PROJECT</code>, <code>TRACKIO_SPACE_ID</code>) <em>before</em> the <code>Trainer</code> starts, and let the single built-in callback own logging.</p>
+</div>
+</div>
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>The pattern across all three
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>None of these were FSDP “not working.” They were interactions at the seams — FSDP × eval, FSDP × disk, <code>Trainer</code> × tracker. Distributed training is mostly debugging the seams, and the logs told the exact story every time. Read them top-to-bottom before changing config.</p>
+</div>
+</div>
+</section>
+</section>
+<section id="benchmarking-the-fsdp-run" class="level2" data-number="6">
+<h2 data-number="6" class="anchored" data-anchor-id="benchmarking-the-fsdp-run"><span class="header-section-number">6</span> Benchmarking the FSDP run</h2>
+<p>The training script exposes a benchmark mode: cap the run to a fixed number of steps, log every step, skip the model push, and capture a <code>torch.profiler</code> trace.</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="co"># FSDP timed run with profiler</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="va">TRAIN_STRATEGY</span><span class="op">=</span>fsdp <span class="va">BENCHMARK_STEPS</span><span class="op">=</span>10 <span class="va">ENABLE_PROFILER</span><span class="op">=</span>true <span class="dt">\</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>    <span class="ex">modal</span> run <span class="at">--detach</span> launch_on_modal.py <span class="at">--script</span> <span class="st">"launch_command.sh"</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div id="fsdp-throughput" class="cell" data-execution_count="3">
+<details class="code-fold">
+<summary>Code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> pandas <span class="im">as</span> pd</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> plotly.graph_objects <span class="im">as</span> go</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> plotly.subplots <span class="im">import</span> make_subplots</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a><span class="co"># </span><span class="al">NOTE</span><span class="co">: placeholder values. Replace with numbers from your BENCHMARK run</span></span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a><span class="co"># (trainer metrics: train_samples_per_second, train_steps_per_second; and</span></span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a><span class="co"># peak per-GPU memory from the profiler trace).</span></span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>bench <span class="op">=</span> pd.DataFrame({</span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Metric"</span>: [<span class="st">"Peak mem / GPU (GB)"</span>, <span class="st">"Samples / sec"</span>, <span class="st">"Steps / sec"</span>],</span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>    <span class="st">"FSDP"</span>:   [<span class="va">None</span>, <span class="va">None</span>, <span class="va">None</span>],</span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a>fig <span class="op">=</span> go.Figure(go.Bar(x<span class="op">=</span>bench[<span class="st">"Metric"</span>], y<span class="op">=</span>bench[<span class="st">"FSDP"</span>],</span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a>                       marker_color<span class="op">=</span><span class="st">"#27AE60"</span>))</span>
+<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a>fig.update_layout(height<span class="op">=</span><span class="dv">350</span>, margin<span class="op">=</span><span class="bu">dict</span>(t<span class="op">=</span><span class="dv">40</span>, b<span class="op">=</span><span class="dv">40</span>, l<span class="op">=</span><span class="dv">60</span>, r<span class="op">=</span><span class="dv">40</span>),</span>
+<span id="cb6-16"><a href="#cb6-16" aria-hidden="true" tabindex="-1"></a>                  title_text<span class="op">=</span><span class="st">"FSDP run summary"</span>)</span>
+<span id="cb6-17"><a href="#cb6-17" aria-hidden="true" tabindex="-1"></a>fig.show()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<div class="callout callout-style-default callout-warning callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Warning</span>Honesty note
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>The chart above is intentionally empty — I’d rather ship a template than invented numbers. Drop in your own <code>train_samples_per_second</code> and the profiler’s peak-memory figure once the benchmark run completes.</p>
+</div>
+</div>
+<section id="reading-the-profiler-trace" class="level3" data-number="6.1">
+<h3 data-number="6.1" class="anchored" data-anchor-id="reading-the-profiler-trace"><span class="header-section-number">6.1</span> Reading the profiler trace</h3>
+<p>Here’s what the actual FSDP trace from this run looks like, loaded in Perfetto:</p>
+<div id="fig-trace" class="quarto-float quarto-figure quarto-figure-center anchored" alt="PyTorch profiler trace showing a python thread, a pt_autograd backward thread with repeated sawtooth patterns, and several CUDA streams (7, 16, 17, 25) densely filled across ProfilerStep#2, #3 and #4">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-trace-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="../images/fsdp_trace.png" class="img-fluid figure-img" alt="PyTorch profiler trace showing a python thread, a pt_autograd backward thread with repeated sawtooth patterns, and several CUDA streams (7, 16, 17, 25) densely filled across ProfilerStep#2, #3 and #4">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-trace-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;1: FSDP training trace: CPU-side autograd on top, GPU CUDA streams below, three profiled steps.
+</figcaption>
+</figure>
+</div>
+<p>Reading it top to bottom:</p>
+<ul>
+<li><strong><code>thread 231 (python)</code></strong> — the main Python thread dispatching work. The long green blocks are the framework driving the step; the early gap at the far left is warmup settling before the profiler’s <code>active</code> window.</li>
+<li><strong><code>thread 289 (pt_autograd_0)</code></strong> — the autograd (backward) thread. Those repeated <strong>sawtooth / “tree” shapes are the per-decoder-layer work</strong> — one repeated unit per wrapped <code>SmolLM3DecoderLayer</code>. That regular, repeating structure is exactly what you want to see: it means auto-wrap sharded at layer granularity as configured, so each layer is gathered → computed → freed in a tidy cycle.</li>
+<li><strong><code>Thread 0 (main thread)</code></strong> — the thin orange tick marks are CUDA kernel <em>launches</em> from the host. They’re evenly spaced, i.e.&nbsp;the CPU is feeding the GPU steadily and isn’t stalling.</li>
+<li><strong>CUDA stream <code>7</code></strong> — the main compute stream. This is where the actual matmuls/attention kernels for the forward and backward pass run.</li>
+<li><strong>CUDA stream <code>16</code></strong> — the NCCL <em>execution</em> stream. Slices here are named things like <code>ncclDevKernel_AllGather_RING_LL(...)</code> with <code>Category: kernel</code> — this is the literal collective communication kernel moving bytes between GPUs.</li>
+<li><strong>CUDA stream <code>17</code></strong> — the FSDP <em>annotation</em> stream. Slices here are named <code>FSDP::all_gather (model.layers.N)</code> with <code>Category: gpu_user_annotation</code> — a profiler-inserted label wrapping the all-gather operation for a specific layer, useful for seeing <em>which layer</em> a given burst of comms belongs to.</li>
+<li><strong><code>ProfilerStep#2/#3/#4</code></strong> label the three steps captured by the schedule (<code>wait=1, warmup=1, active=3</code>). The important read: <strong>streams 7, 16 and 17 are near-continuously filled with almost no white gaps</strong> — the GPU is busy end to end, and compute overlaps with the communication streams rather than stalling on it. That’s <code>backward_prefetch="backward_pre"</code> doing its job.</li>
+</ul>
+<div class="callout callout-style-default callout-tip callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Tip</span>Why you’ll see two all-gathers overlapping, not one at a time
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>Zoom into stream 17 and you’ll often catch two adjacent <code>FSDP::all_gather</code> regions for <em>different</em> layers sitting close together — e.g.&nbsp;<code>model.layers.21</code> and <code>model.layers.23</code> back-to-back rather than cleanly sequential. That’s prefetch, not a bug or duplicate work:</p>
+<ol type="1">
+<li>While GPU 0 is computing <strong>layer 21’s</strong> forward/backward pass on stream 7, FSDP simultaneously kicks off the all-gather for <strong>layer 23’s</strong> weights on streams 16/17, in the background.</li>
+<li>Because the all-gather runs on a separate stream, its network communication overlaps with layer 21’s matmuls instead of blocking them.</li>
+<li>By the time layer 21’s compute finishes, layer 23’s full weights are already sitting there — so compute can move straight into layer 23 with no wait. Worked example with 2 GPUs and 4 layers, each layer’s weights split in half across the two ranks:</li>
+</ol>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>Layer</th>
+<th>GPU 0 holds</th>
+<th>GPU 1 holds</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>1</td>
+<td>half of Layer 1</td>
+<td>other half</td>
+</tr>
+<tr class="even">
+<td>2</td>
+<td>half of Layer 2</td>
+<td>other half</td>
+</tr>
+<tr class="odd">
+<td>3</td>
+<td>half of Layer 3</td>
+<td>other half</td>
+</tr>
+<tr class="even">
+<td>4</td>
+<td>half of Layer 4</td>
+<td>other half</td>
+</tr>
+</tbody>
+</table>
+<p>Neither GPU alone has enough of any single layer to compute with — that’s the memory saving. The naive approach (gather → compute → reshard → gather → compute → …, one layer at a time, fully serial) would stall compute on every layer’s network round-trip. Prefetching hides that cost: the all-gather for layer <em>N+1</em> is issued while layer <em>N</em> is still computing, so by the time layer <em>N</em> finishes, layer <em>N+1</em>’s weights are ready. Over a full step you’ll also see this happen twice per layer — once before forward, once before backward — since FSDP reshards after forward to keep the memory savings, then has to re-gather before backward needs the full weights again.</p>
+</div>
+</div>
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>What’s healthy here
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>The two signals that say this run is <em>compute-bound, not communication-bound</em>: (1) the CUDA streams have very little idle white space, and (2) the per-layer sawtooth in the autograd thread is regular — no long flat stretches where a rank is waiting on an all-gather. On 2 GPUs with layer-wrapped FSDP and prefetch on, that’s the outcome you’re aiming for.</p>
+</div>
+</div>
+<div class="callout callout-style-default callout-warning callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Warning</span>Where the bottleneck would show up
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>This zoomed-out view can hide things a kernel-level zoom would reveal. To confirm communication isn’t the limiter, zoom into a single <code>ProfilerStep</code> and look for:</p>
+<ul>
+<li><strong>Gaps on stream 7 (compute)</strong> that line up with active <code>ncclDevKernel_AllGather</code> slices on stream 16 → comms not overlapping; try tuning prefetch or <code>limit_all_gathers</code>.</li>
+<li><strong><code>stream 25</code></strong>, which fires only in short bursts at the step boundaries here — likely the boundary collective (e.g.&nbsp;gradient reduction / optimizer step). If those bursts grow relative to the step, the sync at the boundary is your cost.</li>
+<li>The <strong>sparse orange band at the very start</strong> — warmup/setup, correctly excluded from the <code>active</code> measurement window. For this run, none of those dominate — the story is a well-overlapped, compute-bound FSDP step.</li>
+</ul>
+</div>
+</div>
+</section>
+</section>
+<section id="recommendations" class="level2" data-number="7">
+<h2 data-number="7" class="anchored" data-anchor-id="recommendations"><span class="header-section-number">7</span> Recommendations</h2>
+<div class="cell" data-eval="true" data-layout-align="default">
+<div class="cell-output-display">
+<div>
+<p></p><figure class="figure"><p></p>
+<div>
+<pre class="mermaid mermaid-js">flowchart TD
+    Start[Model + Adam state&lt;br/&gt;too big for one GPU?] --&gt;|Yes| Fit[Fits when sharded&lt;br/&gt;across your GPUs?]
+    Fit --&gt;|Yes| FSDP[FSDP full_shard]
+    Fit --&gt;|No| Offload[FSDP + CPU param offload&lt;br/&gt;or a bigger / more GPUs]
+</pre>
+</div>
+<p></p><figcaption> Does FSDP fit?</figcaption> </figure><p></p>
+</div>
+</div>
+</div>
+<ol type="1">
+<li><strong>Reach for FSDP <code>full_shard</code></strong> when the model + optimizer state won’t fit as a full replica. It divides the static memory by the number of GPUs.</li>
+<li><strong>Wrap at the correct decoder-layer class</strong> — the single most common way to silently lose the savings.</li>
+<li><strong>Turn on <code>fsdp_offload_params=True</code></strong> if sharding alone isn’t enough. It trades speed for headroom.</li>
+<li><strong>Pin <code>fsdp_version: 1</code></strong> until the FSDP2/DTensor + eval interaction is resolved in your stack.</li>
+</ol>
+</section>
+<section id="lessons-learned" class="level2" data-number="8">
+<h2 data-number="8" class="anchored" data-anchor-id="lessons-learned"><span class="header-section-number">8</span> Lessons learned</h2>
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>Key takeaways
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<ol type="1">
+<li><strong>Parameter count lies about training memory.</strong> A 3B model needs ~36 GB of <em>static</em> state under Adam. Plan for weights + grads + 2× fp32 optimizer state, not just weights.</li>
+<li><strong>FSDP trades communication for memory.</strong> That’s the whole deal — it shards the state so a model that can’t fit as a replica becomes trainable.</li>
+<li><strong>Sharding, not batch size, is the memory lever.</strong> Batch size only touches activations.</li>
+<li><strong>The failures are at the seams.</strong> FSDP × eval, FSDP × disk, <code>Trainer</code> × tracker. Read the traceback fully; each of mine had a one-line fix.</li>
+<li><strong>A bigger GPU isn’t always more memory.</strong> A100-40GB &lt; L40S-48GB. Check the actual VRAM, not the model name.</li>
+</ol>
+</div>
+</div>
+</section>
+<section id="appendix-reproduction" class="level2" data-number="9">
+<h2 data-number="9" class="anchored" data-anchor-id="appendix-reproduction"><span class="header-section-number">9</span> Appendix: reproduction</h2>
+<p>Code, launch scripts, and configuration:</p>
+<p><a href="https://github.com/vinayhpandya/distributed_machine_learning_practice" class="uri">https://github.com/vinayhpandya/distributed_machine_learning_practice</a></p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="co"># FSDP fine-tune, detached so it survives a closed terminal</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="va">TRAIN_STRATEGY</span><span class="op">=</span>fsdp <span class="ex">modal</span> run <span class="at">--detach</span> launch_on_modal.py <span class="at">--script</span> <span class="st">"launch_command.sh"</span></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Follow logs / check status</span></span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a><span class="ex">modal</span> app logs smolm-medical-training</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<hr>
+<p><em>Notes from a distributed-training practice project. Corrections welcome.</em></p>
+
+
+<!-- -->
+
+</section>
+
+</main> <!-- /main -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    // Ensure there is a toggle, if there isn't float one in the top right
+    if (window.document.querySelector('.quarto-color-scheme-toggle') === null) {
+      const a = window.document.createElement('a');
+      a.classList.add('top-right');
+      a.classList.add('quarto-color-scheme-toggle');
+      a.href = "";
+      a.onclick = function() { try { window.quartoToggleColorScheme(); } catch {} return false; };
+      const i = window.document.createElement("i");
+      i.classList.add('bi');
+      a.appendChild(i);
+      window.document.body.appendChild(a);
+    }
+    setColorSchemeToggle(hasAlternateSentinel())
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+    const viewSource = window.document.getElementById('quarto-view-source') ||
+                       window.document.getElementById('quarto-code-tools-source');
+    if (viewSource) {
+      const sourceUrl = viewSource.getAttribute("data-quarto-source-url");
+      viewSource.addEventListener("click", function(e) {
+        if (sourceUrl) {
+          // rstudio viewer pane
+          if (/\bcapabilities=\b/.test(window.location)) {
+            window.open(sourceUrl);
+          } else {
+            window.location.href = sourceUrl;
+          }
+        } else {
+          const modal = new bootstrap.Modal(document.getElementById('quarto-embedded-source-code-modal'));
+          modal.show();
+        }
+        return false;
+      });
+    }
+    function toggleCodeHandler(show) {
+      return function(e) {
+        const detailsSrc = window.document.querySelectorAll(".cell > details > .sourceCode");
+        for (let i=0; i<detailsSrc.length; i++) {
+          const details = detailsSrc[i].parentElement;
+          if (show) {
+            details.open = true;
+          } else {
+            details.removeAttribute("open");
+          }
+        }
+        const cellCodeDivs = window.document.querySelectorAll(".cell > .sourceCode");
+        const fromCls = show ? "hidden" : "unhidden";
+        const toCls = show ? "unhidden" : "hidden";
+        for (let i=0; i<cellCodeDivs.length; i++) {
+          const codeDiv = cellCodeDivs[i];
+          if (codeDiv.classList.contains(fromCls)) {
+            codeDiv.classList.remove(fromCls);
+            codeDiv.classList.add(toCls);
+          } 
+        }
+        return false;
+      }
+    }
+    const hideAllCode = window.document.getElementById("quarto-hide-all-code");
+    if (hideAllCode) {
+      hideAllCode.addEventListener("click", toggleCodeHandler(false));
+    }
+    const showAllCode = window.document.getElementById("quarto-show-all-code");
+    if (showAllCode) {
+      showAllCode.addEventListener("click", toggleCodeHandler(true));
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp("https:\/\/vinayhpandya\.github\.io");
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script><div class="modal fade" id="quarto-embedded-source-code-modal" tabindex="-1" aria-labelledby="quarto-embedded-source-code-modal-label" aria-hidden="true"><div class="modal-dialog modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h5 class="modal-title" id="quarto-embedded-source-code-modal-label">Source Code</h5><button class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><div class="">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb8" data-shortcodes="false"><pre class="sourceCode markdown code-with-copy"><code class="sourceCode markdown"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="co">---</span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="an">title:</span><span class="co"> "Fitting a 3B Model on Two GPUs with FSDP: A Practical Walkthrough"</span></span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a><span class="an">author:</span></span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a><span class="co">  - "Vinay Pandya"</span></span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a><span class="an">date:</span><span class="co"> "2026-09-12"</span></span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a><span class="an">categories:</span><span class="co"> [fsdp, distributed-training, pytorch, llm, fine-tuning, modal]</span></span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a><span class="an">toc:</span><span class="co"> true</span></span>
+<span id="cb8-8"><a href="#cb8-8" aria-hidden="true" tabindex="-1"></a><span class="an">toc-depth:</span><span class="co"> 3</span></span>
+<span id="cb8-9"><a href="#cb8-9" aria-hidden="true" tabindex="-1"></a><span class="an">number-sections:</span><span class="co"> true</span></span>
+<span id="cb8-10"><a href="#cb8-10" aria-hidden="true" tabindex="-1"></a><span class="an">highlight-style:</span><span class="co"> github</span></span>
+<span id="cb8-11"><a href="#cb8-11" aria-hidden="true" tabindex="-1"></a><span class="an">code-fold:</span><span class="co"> true</span></span>
+<span id="cb8-12"><a href="#cb8-12" aria-hidden="true" tabindex="-1"></a><span class="an">code-tools:</span><span class="co"> true</span></span>
+<span id="cb8-13"><a href="#cb8-13" aria-hidden="true" tabindex="-1"></a><span class="an">execute:</span></span>
+<span id="cb8-14"><a href="#cb8-14" aria-hidden="true" tabindex="-1"></a><span class="co">  eval: false</span></span>
+<span id="cb8-15"><a href="#cb8-15" aria-hidden="true" tabindex="-1"></a><span class="co">  warning: false</span></span>
+<span id="cb8-16"><a href="#cb8-16" aria-hidden="true" tabindex="-1"></a><span class="co">  message: false</span></span>
+<span id="cb8-17"><a href="#cb8-17" aria-hidden="true" tabindex="-1"></a><span class="co">---</span></span>
+<span id="cb8-18"><a href="#cb8-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-19"><a href="#cb8-19" aria-hidden="true" tabindex="-1"></a><span class="fu">## Introduction</span></span>
+<span id="cb8-20"><a href="#cb8-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-21"><a href="#cb8-21" aria-hidden="true" tabindex="-1"></a>These are my notes from fine-tuning <span class="co">[</span><span class="ot">SmolLM3-3B</span><span class="co">](https://huggingface.co/HuggingFaceTB/SmolLM3-3B)</span></span>
+<span id="cb8-22"><a href="#cb8-22" aria-hidden="true" tabindex="-1"></a>on a medical Q&amp;A dataset across two GPUs using **FSDP** (Fully Sharded Data</span>
+<span id="cb8-23"><a href="#cb8-23" aria-hidden="true" tabindex="-1"></a>Parallel). The goal was practical: understand what FSDP actually does to memory,</span>
+<span id="cb8-24"><a href="#cb8-24" aria-hidden="true" tabindex="-1"></a>why it's *necessary* here rather than optional, and what breaks along the way.</span>
+<span id="cb8-25"><a href="#cb8-25" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-26"><a href="#cb8-26" aria-hidden="true" tabindex="-1"></a>The motivating constraint is concrete. A 3B model sounds small — 6 GB of weights</span>
+<span id="cb8-27"><a href="#cb8-27" aria-hidden="true" tabindex="-1"></a>in bf16 — so surely it trains on any modern GPU. It doesn't. On the A100-40GB I</span>
+<span id="cb8-28"><a href="#cb8-28" aria-hidden="true" tabindex="-1"></a>was running, the naive full-replica approach doesn't fit at all. FSDP is what makes</span>
+<span id="cb8-29"><a href="#cb8-29" aria-hidden="true" tabindex="-1"></a>this model trainable on that hardware, and understanding *why* is the whole point.</span>
+<span id="cb8-30"><a href="#cb8-30" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-31"><a href="#cb8-31" aria-hidden="true" tabindex="-1"></a>::: {.callout-note}</span>
+<span id="cb8-32"><a href="#cb8-32" aria-hidden="true" tabindex="-1"></a><span class="fu">## What this post is</span></span>
+<span id="cb8-33"><a href="#cb8-33" aria-hidden="true" tabindex="-1"></a>The reasoning and the gotchas behind one real FSDP run, using Hugging Face's</span>
+<span id="cb8-34"><a href="#cb8-34" aria-hidden="true" tabindex="-1"></a><span class="in">`Trainer`</span> / TRL <span class="in">`SFTTrainer`</span> where FSDP is configured rather than hand-written.</span>
+<span id="cb8-35"><a href="#cb8-35" aria-hidden="true" tabindex="-1"></a>Code lives at the end.</span>
+<span id="cb8-36"><a href="#cb8-36" aria-hidden="true" tabindex="-1"></a>:::</span>
+<span id="cb8-37"><a href="#cb8-37" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-38"><a href="#cb8-38" aria-hidden="true" tabindex="-1"></a><span class="fu">## Why the model doesn't fit: where the memory goes</span></span>
+<span id="cb8-39"><a href="#cb8-39" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-40"><a href="#cb8-40" aria-hidden="true" tabindex="-1"></a>The intuition that trips people up: parameter count barely predicts training</span>
+<span id="cb8-41"><a href="#cb8-41" aria-hidden="true" tabindex="-1"></a>memory. The weights are the *small* part. Everything around them — gradients and,</span>
+<span id="cb8-42"><a href="#cb8-42" aria-hidden="true" tabindex="-1"></a>above all, the optimizer state — is what fills the GPU.</span>
+<span id="cb8-43"><a href="#cb8-43" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-44"><a href="#cb8-44" aria-hidden="true" tabindex="-1"></a>For a model with $P$ parameters trained with Adam in mixed precision, the *static*</span>
+<span id="cb8-45"><a href="#cb8-45" aria-hidden="true" tabindex="-1"></a>per-GPU cost — present before a single activation — looks like this:</span>
+<span id="cb8-46"><a href="#cb8-46" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-47"><a href="#cb8-47" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Component <span class="pp">|</span> Precision <span class="pp">|</span> Bytes/param <span class="pp">|</span> For 3B <span class="pp">|</span></span>
+<span id="cb8-48"><a href="#cb8-48" aria-hidden="true" tabindex="-1"></a><span class="pp">|-----------|-----------|-------------|--------|</span></span>
+<span id="cb8-49"><a href="#cb8-49" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Weights <span class="pp">|</span> bf16 <span class="pp">|</span> 2 <span class="pp">|</span> ~6 GB <span class="pp">|</span></span>
+<span id="cb8-50"><a href="#cb8-50" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Gradients <span class="pp">|</span> bf16 <span class="pp">|</span> 2 <span class="pp">|</span> ~6 GB <span class="pp">|</span></span>
+<span id="cb8-51"><a href="#cb8-51" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Adam moment <span class="in">`m`</span> <span class="pp">|</span> fp32 <span class="pp">|</span> 4 <span class="pp">|</span> ~12 GB <span class="pp">|</span></span>
+<span id="cb8-52"><a href="#cb8-52" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Adam variance <span class="in">`v`</span> <span class="pp">|</span> fp32 <span class="pp">|</span> 4 <span class="pp">|</span> ~12 GB <span class="pp">|</span></span>
+<span id="cb8-53"><a href="#cb8-53" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> **Static total** | | **~12** | **~36 GB** <span class="pp">|</span></span>
+<span id="cb8-54"><a href="#cb8-54" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-55"><a href="#cb8-55" aria-hidden="true" tabindex="-1"></a>Activations sit on top of that (gradient checkpointing keeps them small). So the</span>
+<span id="cb8-56"><a href="#cb8-56" aria-hidden="true" tabindex="-1"></a>*real* number to plan around is ~36–42 GB, not 6 GB.</span>
+<span id="cb8-57"><a href="#cb8-57" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-60"><a href="#cb8-60" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb8-61"><a href="#cb8-61" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: memory-model</span></span>
+<span id="cb8-62"><a href="#cb8-62" aria-hidden="true" tabindex="-1"></a><span class="co">#| code-fold: show</span></span>
+<span id="cb8-63"><a href="#cb8-63" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-64"><a href="#cb8-64" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> static_memory_gb(params_billion, num_gpus<span class="op">=</span><span class="dv">1</span>, sharded<span class="op">=</span><span class="va">False</span>):</span>
+<span id="cb8-65"><a href="#cb8-65" aria-hidden="true" tabindex="-1"></a>    <span class="co">"""Rough per-GPU static training memory (weights + grads + Adam), mixed precision."""</span></span>
+<span id="cb8-66"><a href="#cb8-66" aria-hidden="true" tabindex="-1"></a>    P <span class="op">=</span> params_billion <span class="op">*</span> <span class="fl">1e9</span></span>
+<span id="cb8-67"><a href="#cb8-67" aria-hidden="true" tabindex="-1"></a>    weights <span class="op">=</span> <span class="dv">2</span> <span class="op">*</span> P      <span class="co"># bf16</span></span>
+<span id="cb8-68"><a href="#cb8-68" aria-hidden="true" tabindex="-1"></a>    grads   <span class="op">=</span> <span class="dv">2</span> <span class="op">*</span> P      <span class="co"># bf16</span></span>
+<span id="cb8-69"><a href="#cb8-69" aria-hidden="true" tabindex="-1"></a>    adam    <span class="op">=</span> <span class="dv">8</span> <span class="op">*</span> P      <span class="co"># fp32 m + fp32 v</span></span>
+<span id="cb8-70"><a href="#cb8-70" aria-hidden="true" tabindex="-1"></a>    total_bytes <span class="op">=</span> weights <span class="op">+</span> grads <span class="op">+</span> adam</span>
+<span id="cb8-71"><a href="#cb8-71" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> sharded:</span>
+<span id="cb8-72"><a href="#cb8-72" aria-hidden="true" tabindex="-1"></a>        total_bytes <span class="op">/=</span> num_gpus   <span class="co"># FSDP: sharded across ranks</span></span>
+<span id="cb8-73"><a href="#cb8-73" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> total_bytes <span class="op">/</span> <span class="fl">1e9</span></span>
+<span id="cb8-74"><a href="#cb8-74" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-75"><a href="#cb8-75" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"full replica, 1 GPU: ~</span><span class="sc">{</span>static_memory_gb(<span class="dv">3</span>)<span class="sc">:.0f}</span><span class="ss"> GB"</span>)</span>
+<span id="cb8-76"><a href="#cb8-76" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"FSDP sharded, 2 GPU: ~</span><span class="sc">{</span>static_memory_gb(<span class="dv">3</span>, num_gpus<span class="op">=</span><span class="dv">2</span>, sharded<span class="op">=</span><span class="va">True</span>)<span class="sc">:.0f}</span><span class="ss"> GB"</span>)</span>
+<span id="cb8-77"><a href="#cb8-77" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb8-78"><a href="#cb8-78" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-79"><a href="#cb8-79" aria-hidden="true" tabindex="-1"></a><span class="fu">### Why this rules out a single-GPU full replica</span></span>
+<span id="cb8-80"><a href="#cb8-80" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-81"><a href="#cb8-81" aria-hidden="true" tabindex="-1"></a>That ~36–42 GB peak lands right on top of a 40 GB card's ceiling — no room for</span>
+<span id="cb8-82"><a href="#cb8-82" aria-hidden="true" tabindex="-1"></a>activations, CUDA context, or NCCL buffers. In practice it OOMs. The table shows</span>
+<span id="cb8-83"><a href="#cb8-83" aria-hidden="true" tabindex="-1"></a>how tight it is:</span>
+<span id="cb8-84"><a href="#cb8-84" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-85"><a href="#cb8-85" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> GPU <span class="pp">|</span> VRAM <span class="pp">|</span> Full replica (~40 GB peak) <span class="pp">|</span> FSDP sharded / 2 GPU (~18 GB) <span class="pp">|</span></span>
+<span id="cb8-86"><a href="#cb8-86" aria-hidden="true" tabindex="-1"></a><span class="pp">|-----|------|----------------------------|-------------------------------|</span></span>
+<span id="cb8-87"><a href="#cb8-87" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> A10G <span class="pp">|</span> 24 GB <span class="pp">|</span> ❌ OOM <span class="pp">|</span> ✅ <span class="pp">|</span></span>
+<span id="cb8-88"><a href="#cb8-88" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> A100 40 GB <span class="pp">|</span> 40 GB <span class="pp">|</span> ❌ OOM / knife-edge <span class="pp">|</span> ✅ <span class="pp">|</span></span>
+<span id="cb8-89"><a href="#cb8-89" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> L40S <span class="pp">|</span> 48 GB <span class="pp">|</span> ✅ (small headroom) <span class="pp">|</span> ✅ <span class="pp">|</span></span>
+<span id="cb8-90"><a href="#cb8-90" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> A100 80 GB <span class="pp">|</span> 80 GB <span class="pp">|</span> ✅ comfortable <span class="pp">|</span> ✅ <span class="pp">|</span></span>
+<span id="cb8-91"><a href="#cb8-91" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-92"><a href="#cb8-92" aria-hidden="true" tabindex="-1"></a>::: {.callout-warning}</span>
+<span id="cb8-93"><a href="#cb8-93" aria-hidden="true" tabindex="-1"></a><span class="fu">## Batch size is the wrong lever</span></span>
+<span id="cb8-94"><a href="#cb8-94" aria-hidden="true" tabindex="-1"></a>When you OOM, the reflex is to drop the batch size. But batch size only scales</span>
+<span id="cb8-95"><a href="#cb8-95" aria-hidden="true" tabindex="-1"></a>*activation* memory — the small part, especially with gradient checkpointing on.</span>
+<span id="cb8-96"><a href="#cb8-96" aria-hidden="true" tabindex="-1"></a>The ~36 GB of weights + grads + optimizer state doesn't move. If the static cost</span>
+<span id="cb8-97"><a href="#cb8-97" aria-hidden="true" tabindex="-1"></a>doesn't fit, **sharding is the fix, not a smaller batch.**</span>
+<span id="cb8-98"><a href="#cb8-98" aria-hidden="true" tabindex="-1"></a>:::</span>
+<span id="cb8-99"><a href="#cb8-99" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-100"><a href="#cb8-100" aria-hidden="true" tabindex="-1"></a><span class="fu">## What FSDP does about it</span></span>
+<span id="cb8-101"><a href="#cb8-101" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-102"><a href="#cb8-102" aria-hidden="true" tabindex="-1"></a>FSDP's core idea: don't keep a full copy of the model on every GPU. Partition the</span>
+<span id="cb8-103"><a href="#cb8-103" aria-hidden="true" tabindex="-1"></a>weights, gradients, and optimizer state across the ranks, and reconstruct each</span>
+<span id="cb8-104"><a href="#cb8-104" aria-hidden="true" tabindex="-1"></a>layer's full weights *just in time* for the forward and backward pass, then throw</span>
+<span id="cb8-105"><a href="#cb8-105" aria-hidden="true" tabindex="-1"></a>them away again.</span>
+<span id="cb8-106"><a href="#cb8-106" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-109"><a href="#cb8-109" aria-hidden="true" tabindex="-1"></a><span class="in">```{mermaid}</span></span>
+<span id="cb8-110"><a href="#cb8-110" aria-hidden="true" tabindex="-1"></a>%%| <span class="fu">eval</span>: true</span>
+<span id="cb8-111"><a href="#cb8-111" aria-hidden="true" tabindex="-1"></a>%%| fig-cap: <span class="ot">"</span><span class="st">FSDP: parameters live sharded, gathered per-layer on demand</span><span class="ot">"</span></span>
+<span id="cb8-112"><a href="#cb8-112" aria-hidden="true" tabindex="-1"></a>flowchart TB</span>
+<span id="cb8-113"><a href="#cb8-113" aria-hidden="true" tabindex="-1"></a>    B1[Shard <span class="dv">0</span>&lt;br/&gt;GPU <span class="dv">0</span>] -- all-gather weights --&gt; B3[Full layer&lt;br/&gt;forward / backward]</span>
+<span id="cb8-114"><a href="#cb8-114" aria-hidden="true" tabindex="-1"></a>    B2[Shard <span class="dv">1</span>&lt;br/&gt;GPU <span class="dv">1</span>] -- all-gather weights --&gt; B3</span>
+<span id="cb8-115"><a href="#cb8-115" aria-hidden="true" tabindex="-1"></a>    B3 -- reduce-scatter grads --&gt; B1</span>
+<span id="cb8-116"><a href="#cb8-116" aria-hidden="true" tabindex="-1"></a>    B3 -- reduce-scatter grads --&gt; B2</span>
+<span id="cb8-117"><a href="#cb8-117" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb8-118"><a href="#cb8-118" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-119"><a href="#cb8-119" aria-hidden="true" tabindex="-1"></a>Concretely, per training step FSDP:</span>
+<span id="cb8-120"><a href="#cb8-120" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-121"><a href="#cb8-121" aria-hidden="true" tabindex="-1"></a><span class="ss">1. </span>**All-gathers** each layer's sharded weights into the full layer, right before</span>
+<span id="cb8-122"><a href="#cb8-122" aria-hidden="true" tabindex="-1"></a>   it's needed.</span>
+<span id="cb8-123"><a href="#cb8-123" aria-hidden="true" tabindex="-1"></a><span class="ss">2. </span>Runs forward / backward on the full layer, then **frees** the gathered weights.</span>
+<span id="cb8-124"><a href="#cb8-124" aria-hidden="true" tabindex="-1"></a><span class="ss">3. </span>**Reduce-scatters** the gradients back down to shards.</span>
+<span id="cb8-125"><a href="#cb8-125" aria-hidden="true" tabindex="-1"></a><span class="ss">4. </span>Keeps only its shard of the optimizer state.</span>
+<span id="cb8-126"><a href="#cb8-126" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-127"><a href="#cb8-127" aria-hidden="true" tabindex="-1"></a>The result on 2 GPUs: that ~36 GB static cost becomes ~18 GB per GPU. The price is</span>
+<span id="cb8-128"><a href="#cb8-128" aria-hidden="true" tabindex="-1"></a>communication — the all-gathers and reduce-scatters are extra traffic every step.</span>
+<span id="cb8-129"><a href="#cb8-129" aria-hidden="true" tabindex="-1"></a>That's the fundamental FSDP trade: **communication in exchange for memory.** When</span>
+<span id="cb8-130"><a href="#cb8-130" aria-hidden="true" tabindex="-1"></a>the model won't fit otherwise, it's a trade you happily take, because the</span>
+<span id="cb8-131"><a href="#cb8-131" aria-hidden="true" tabindex="-1"></a>alternative is not training at all.</span>
+<span id="cb8-132"><a href="#cb8-132" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-133"><a href="#cb8-133" aria-hidden="true" tabindex="-1"></a><span class="fu">## Configuring FSDP with the HF Trainer</span></span>
+<span id="cb8-134"><a href="#cb8-134" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-135"><a href="#cb8-135" aria-hidden="true" tabindex="-1"></a>The relevant switch in <span class="in">`SFTConfig`</span> / <span class="in">`TrainingArguments`</span>:</span>
+<span id="cb8-136"><a href="#cb8-136" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-139"><a href="#cb8-139" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb8-140"><a href="#cb8-140" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: fsdp-config</span></span>
+<span id="cb8-141"><a href="#cb8-141" aria-hidden="true" tabindex="-1"></a><span class="co">#| code-fold: show</span></span>
+<span id="cb8-142"><a href="#cb8-142" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-143"><a href="#cb8-143" aria-hidden="true" tabindex="-1"></a>fsdp_arg <span class="op">=</span> <span class="st">"full_shard auto_wrap"</span></span>
+<span id="cb8-144"><a href="#cb8-144" aria-hidden="true" tabindex="-1"></a>fsdp_config <span class="op">=</span> {</span>
+<span id="cb8-145"><a href="#cb8-145" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Force FSDP1 (flat params) instead of FSDP2 (DTensor). See gotcha #1 below.</span></span>
+<span id="cb8-146"><a href="#cb8-146" aria-hidden="true" tabindex="-1"></a>    <span class="st">"fsdp_version"</span>: <span class="dv">1</span>,</span>
+<span id="cb8-147"><a href="#cb8-147" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Wrap at the model's actual decoder-layer class -- NOT "LlamaDecoderLayer".</span></span>
+<span id="cb8-148"><a href="#cb8-148" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Auto-wrap needs the right class name to find shard boundaries.</span></span>
+<span id="cb8-149"><a href="#cb8-149" aria-hidden="true" tabindex="-1"></a>    <span class="st">"fsdp_transformer_layer_cls_to_wrap"</span>: [<span class="st">"SmolLM3DecoderLayer"</span>],</span>
+<span id="cb8-150"><a href="#cb8-150" aria-hidden="true" tabindex="-1"></a>    <span class="st">"fsdp_backward_prefetch"</span>: <span class="st">"backward_pre"</span>,   <span class="co"># overlap comms with compute</span></span>
+<span id="cb8-151"><a href="#cb8-151" aria-hidden="true" tabindex="-1"></a>    <span class="st">"fsdp_state_dict_type"</span>: <span class="st">"SHARDED_STATE_DICT"</span>,</span>
+<span id="cb8-152"><a href="#cb8-152" aria-hidden="true" tabindex="-1"></a>    <span class="st">"fsdp_offload_params"</span>: <span class="va">False</span>,               <span class="co"># True if you're still OOMing</span></span>
+<span id="cb8-153"><a href="#cb8-153" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb8-154"><a href="#cb8-154" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb8-155"><a href="#cb8-155" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-156"><a href="#cb8-156" aria-hidden="true" tabindex="-1"></a>Two details that matter more than they look:</span>
+<span id="cb8-157"><a href="#cb8-157" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-158"><a href="#cb8-158" aria-hidden="true" tabindex="-1"></a><span class="ss">1. </span>**The wrap class must be exact.** For SmolLM3 it's <span class="in">`SmolLM3DecoderLayer`</span>, not the</span>
+<span id="cb8-159"><a href="#cb8-159" aria-hidden="true" tabindex="-1"></a>   Llama name you might copy from a tutorial. Get it wrong and auto-wrap can't find</span>
+<span id="cb8-160"><a href="#cb8-160" aria-hidden="true" tabindex="-1"></a>   layer boundaries to shard at — you silently lose most of the memory savings.</span>
+<span id="cb8-161"><a href="#cb8-161" aria-hidden="true" tabindex="-1"></a><span class="ss">2. </span>**`fsdp_offload_params=True`** is your escape hatch if even sharded params don't</span>
+<span id="cb8-162"><a href="#cb8-162" aria-hidden="true" tabindex="-1"></a>   fit — it pushes them to CPU RAM at a throughput cost. The last resort before</span>
+<span id="cb8-163"><a href="#cb8-163" aria-hidden="true" tabindex="-1"></a>   "get a bigger GPU."</span>
+<span id="cb8-164"><a href="#cb8-164" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-165"><a href="#cb8-165" aria-hidden="true" tabindex="-1"></a><span class="fu">## The gotchas (this is the useful part)</span></span>
+<span id="cb8-166"><a href="#cb8-166" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-167"><a href="#cb8-167" aria-hidden="true" tabindex="-1"></a>Getting FSDP *configured* was easy. Getting a run to actually finish surfaced three</span>
+<span id="cb8-168"><a href="#cb8-168" aria-hidden="true" tabindex="-1"></a>failures that no tutorial warned me about. Each looked scary and had a one-line fix.</span>
+<span id="cb8-169"><a href="#cb8-169" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-170"><a href="#cb8-170" aria-hidden="true" tabindex="-1"></a><span class="fu">### Gotcha 1 — FSDP2's DTensor error after the first eval</span></span>
+<span id="cb8-171"><a href="#cb8-171" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-172"><a href="#cb8-172" aria-hidden="true" tabindex="-1"></a>The run trained cleanly for ~100 steps, ran a full eval, then died:</span>
+<span id="cb8-173"><a href="#cb8-173" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-174"><a href="#cb8-174" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb8-175"><a href="#cb8-175" aria-hidden="true" tabindex="-1"></a><span class="in">RuntimeError: aten.embedding.default: got mixed torch.Tensor and DTensor,</span></span>
+<span id="cb8-176"><a href="#cb8-176" aria-hidden="true" tabindex="-1"></a><span class="in">need to convert all torch.Tensor to DTensor before calling distributed operators!</span></span>
+<span id="cb8-177"><a href="#cb8-177" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb8-178"><a href="#cb8-178" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-179"><a href="#cb8-179" aria-hidden="true" tabindex="-1"></a>Modern FSDP (**FSDP2**, <span class="in">`fully_shard`</span>) represents sharded params as <span class="in">`DTensor`</span>. Some</span>
+<span id="cb8-180"><a href="#cb8-180" aria-hidden="true" tabindex="-1"></a>params — notably tied embeddings — can end up as plain <span class="in">`torch.Tensor`</span> while the</span>
+<span id="cb8-181"><a href="#cb8-181" aria-hidden="true" tabindex="-1"></a>rest are <span class="in">`DTensor`</span>, and the *next* forward after an eval/checkpoint cycle mixes the</span>
+<span id="cb8-182"><a href="#cb8-182" aria-hidden="true" tabindex="-1"></a>two. It characteristically fires right after the first eval, which is why it ran</span>
+<span id="cb8-183"><a href="#cb8-183" aria-hidden="true" tabindex="-1"></a>fine for 100 steps first.</span>
+<span id="cb8-184"><a href="#cb8-184" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-185"><a href="#cb8-185" aria-hidden="true" tabindex="-1"></a>::: {.callout-tip}</span>
+<span id="cb8-186"><a href="#cb8-186" aria-hidden="true" tabindex="-1"></a><span class="fu">## Fix</span></span>
+<span id="cb8-187"><a href="#cb8-187" aria-hidden="true" tabindex="-1"></a>Pin FSDP1: <span class="in">`"fsdp_version": 1`</span>. FSDP1 uses flat parameters, not <span class="in">`DTensor`</span>, so the</span>
+<span id="cb8-188"><a href="#cb8-188" aria-hidden="true" tabindex="-1"></a>mixed-tensor path can't occur. (Tracked upstream in</span>
+<span id="cb8-189"><a href="#cb8-189" aria-hidden="true" tabindex="-1"></a><span class="co">[</span><span class="ot">transformers #42417</span><span class="co">](https://github.com/huggingface/transformers/issues/42417)</span></span>
+<span id="cb8-190"><a href="#cb8-190" aria-hidden="true" tabindex="-1"></a>and <span class="co">[</span><span class="ot">pytorch #153354</span><span class="co">](https://github.com/pytorch/pytorch/issues/153354)</span>.)</span>
+<span id="cb8-191"><a href="#cb8-191" aria-hidden="true" tabindex="-1"></a>:::</span>
+<span id="cb8-192"><a href="#cb8-192" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-193"><a href="#cb8-193" aria-hidden="true" tabindex="-1"></a><span class="fu">### Gotcha 2 — checkpoint save fills the disk and truncates</span></span>
+<span id="cb8-194"><a href="#cb8-194" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-195"><a href="#cb8-195" aria-hidden="true" tabindex="-1"></a>With FSDP1 in place, the run then crashed at the first checkpoint save:</span>
+<span id="cb8-196"><a href="#cb8-196" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-197"><a href="#cb8-197" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb8-198"><a href="#cb8-198" aria-hidden="true" tabindex="-1"></a><span class="in">save_fsdp_optimizer → dist_cp.save → torch.save → write_end_of_file()</span></span>
+<span id="cb8-199"><a href="#cb8-199" aria-hidden="true" tabindex="-1"></a><span class="in">RuntimeError: [enforce fail at inline_container.cc:626] . unexpected pos 448 vs 342</span></span>
+<span id="cb8-200"><a href="#cb8-200" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb8-201"><a href="#cb8-201" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-202"><a href="#cb8-202" aria-hidden="true" tabindex="-1"></a>That <span class="in">`unexpected pos`</span> from torch's <span class="in">`inline_container`</span> is a **truncated write** — the</span>
+<span id="cb8-203"><a href="#cb8-203" aria-hidden="true" tabindex="-1"></a>file write failed partway. The cause: an FSDP checkpoint saves weights *plus* the</span>
+<span id="cb8-204"><a href="#cb8-204" aria-hidden="true" tabindex="-1"></a>full fp32 Adam state (~30 GB+ for 3B), and that overflowed the container's ephemeral</span>
+<span id="cb8-205"><a href="#cb8-205" aria-hidden="true" tabindex="-1"></a>disk on the first save. Ironically, the same optimizer state that forces you to use</span>
+<span id="cb8-206"><a href="#cb8-206" aria-hidden="true" tabindex="-1"></a>FSDP is also what blows up the checkpoint.</span>
+<span id="cb8-207"><a href="#cb8-207" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-208"><a href="#cb8-208" aria-hidden="true" tabindex="-1"></a>::: {.callout-tip}</span>
+<span id="cb8-209"><a href="#cb8-209" aria-hidden="true" tabindex="-1"></a><span class="fu">## Fix</span></span>
+<span id="cb8-210"><a href="#cb8-210" aria-hidden="true" tabindex="-1"></a>If you only want the final model, stop periodic checkpoints entirely:</span>
+<span id="cb8-211"><a href="#cb8-211" aria-hidden="true" tabindex="-1"></a><span class="in">`save_strategy="no"`</span>. The explicit <span class="in">`save_model()`</span> + <span class="in">`push_to_hub()`</span> at the end still</span>
+<span id="cb8-212"><a href="#cb8-212" aria-hidden="true" tabindex="-1"></a>run. For crash-resilient long runs, instead mount a large **volume** at</span>
+<span id="cb8-213"><a href="#cb8-213" aria-hidden="true" tabindex="-1"></a><span class="in">`output_dir`</span> so there's real disk to write to.</span>
+<span id="cb8-214"><a href="#cb8-214" aria-hidden="true" tabindex="-1"></a>:::</span>
+<span id="cb8-215"><a href="#cb8-215" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-216"><a href="#cb8-216" aria-hidden="true" tabindex="-1"></a><span class="fu">### Gotcha 3 — metrics logged to the wrong place</span></span>
+<span id="cb8-217"><a href="#cb8-217" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-218"><a href="#cb8-218" aria-hidden="true" tabindex="-1"></a>Training metrics weren't showing on the dashboard. The logs revealed *two* separate</span>
+<span id="cb8-219"><a href="#cb8-219" aria-hidden="true" tabindex="-1"></a>experiment-tracker sessions: a manual <span class="in">`init()`</span> that got closed before training, and</span>
+<span id="cb8-220"><a href="#cb8-220" aria-hidden="true" tabindex="-1"></a>the <span class="in">`Trainer`</span>'s built-in callback — which does its own <span class="in">`init()`</span> and reads its target</span>
+<span id="cb8-221"><a href="#cb8-221" aria-hidden="true" tabindex="-1"></a>from **environment variables**, defaulting to a *local* directory inside the</span>
+<span id="cb8-222"><a href="#cb8-222" aria-hidden="true" tabindex="-1"></a>container that's discarded when the job ends.</span>
+<span id="cb8-223"><a href="#cb8-223" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-224"><a href="#cb8-224" aria-hidden="true" tabindex="-1"></a>::: {.callout-tip}</span>
+<span id="cb8-225"><a href="#cb8-225" aria-hidden="true" tabindex="-1"></a><span class="fu">## Fix</span></span>
+<span id="cb8-226"><a href="#cb8-226" aria-hidden="true" tabindex="-1"></a>Don't hand-roll a second tracker session. Set the env vars the callback actually</span>
+<span id="cb8-227"><a href="#cb8-227" aria-hidden="true" tabindex="-1"></a>reads (e.g. <span class="in">`TRACKIO_PROJECT`</span>, <span class="in">`TRACKIO_SPACE_ID`</span>) *before* the <span class="in">`Trainer`</span> starts,</span>
+<span id="cb8-228"><a href="#cb8-228" aria-hidden="true" tabindex="-1"></a>and let the single built-in callback own logging.</span>
+<span id="cb8-229"><a href="#cb8-229" aria-hidden="true" tabindex="-1"></a>:::</span>
+<span id="cb8-230"><a href="#cb8-230" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-231"><a href="#cb8-231" aria-hidden="true" tabindex="-1"></a>::: {.callout-note}</span>
+<span id="cb8-232"><a href="#cb8-232" aria-hidden="true" tabindex="-1"></a><span class="fu">## The pattern across all three</span></span>
+<span id="cb8-233"><a href="#cb8-233" aria-hidden="true" tabindex="-1"></a>None of these were FSDP "not working." They were interactions at the seams —</span>
+<span id="cb8-234"><a href="#cb8-234" aria-hidden="true" tabindex="-1"></a>FSDP × eval, FSDP × disk, <span class="in">`Trainer`</span> × tracker. Distributed training is mostly</span>
+<span id="cb8-235"><a href="#cb8-235" aria-hidden="true" tabindex="-1"></a>debugging the seams, and the logs told the exact story every time. Read them</span>
+<span id="cb8-236"><a href="#cb8-236" aria-hidden="true" tabindex="-1"></a>top-to-bottom before changing config.</span>
+<span id="cb8-237"><a href="#cb8-237" aria-hidden="true" tabindex="-1"></a>:::</span>
+<span id="cb8-238"><a href="#cb8-238" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-239"><a href="#cb8-239" aria-hidden="true" tabindex="-1"></a><span class="fu">## Benchmarking the FSDP run</span></span>
+<span id="cb8-240"><a href="#cb8-240" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-241"><a href="#cb8-241" aria-hidden="true" tabindex="-1"></a>The training script exposes a benchmark mode: cap the run to a fixed number of</span>
+<span id="cb8-242"><a href="#cb8-242" aria-hidden="true" tabindex="-1"></a>steps, log every step, skip the model push, and capture a <span class="in">`torch.profiler`</span> trace.</span>
+<span id="cb8-243"><a href="#cb8-243" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-244"><a href="#cb8-244" aria-hidden="true" tabindex="-1"></a><span class="in">```bash</span></span>
+<span id="cb8-245"><a href="#cb8-245" aria-hidden="true" tabindex="-1"></a><span class="co"># FSDP timed run with profiler</span></span>
+<span id="cb8-246"><a href="#cb8-246" aria-hidden="true" tabindex="-1"></a><span class="va">TRAIN_STRATEGY</span><span class="op">=</span>fsdp <span class="va">BENCHMARK_STEPS</span><span class="op">=</span>10 <span class="va">ENABLE_PROFILER</span><span class="op">=</span>true <span class="dt">\</span></span>
+<span id="cb8-247"><a href="#cb8-247" aria-hidden="true" tabindex="-1"></a>    <span class="ex">modal</span> run <span class="at">--detach</span> launch_on_modal.py <span class="at">--script</span> <span class="st">"launch_command.sh"</span></span>
+<span id="cb8-248"><a href="#cb8-248" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb8-249"><a href="#cb8-249" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-252"><a href="#cb8-252" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb8-253"><a href="#cb8-253" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: fsdp-throughput</span></span>
+<span id="cb8-254"><a href="#cb8-254" aria-hidden="true" tabindex="-1"></a><span class="co">#| eval: false</span></span>
+<span id="cb8-255"><a href="#cb8-255" aria-hidden="true" tabindex="-1"></a><span class="co">#| fig-cap: "FSDP throughput and per-GPU memory — fill from your own profiler run"</span></span>
+<span id="cb8-256"><a href="#cb8-256" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-257"><a href="#cb8-257" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> pandas <span class="im">as</span> pd</span>
+<span id="cb8-258"><a href="#cb8-258" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> plotly.graph_objects <span class="im">as</span> go</span>
+<span id="cb8-259"><a href="#cb8-259" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> plotly.subplots <span class="im">import</span> make_subplots</span>
+<span id="cb8-260"><a href="#cb8-260" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-261"><a href="#cb8-261" aria-hidden="true" tabindex="-1"></a><span class="co"># </span><span class="al">NOTE</span><span class="co">: placeholder values. Replace with numbers from your BENCHMARK run</span></span>
+<span id="cb8-262"><a href="#cb8-262" aria-hidden="true" tabindex="-1"></a><span class="co"># (trainer metrics: train_samples_per_second, train_steps_per_second; and</span></span>
+<span id="cb8-263"><a href="#cb8-263" aria-hidden="true" tabindex="-1"></a><span class="co"># peak per-GPU memory from the profiler trace).</span></span>
+<span id="cb8-264"><a href="#cb8-264" aria-hidden="true" tabindex="-1"></a>bench <span class="op">=</span> pd.DataFrame({</span>
+<span id="cb8-265"><a href="#cb8-265" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Metric"</span>: [<span class="st">"Peak mem / GPU (GB)"</span>, <span class="st">"Samples / sec"</span>, <span class="st">"Steps / sec"</span>],</span>
+<span id="cb8-266"><a href="#cb8-266" aria-hidden="true" tabindex="-1"></a>    <span class="st">"FSDP"</span>:   [<span class="va">None</span>, <span class="va">None</span>, <span class="va">None</span>],</span>
+<span id="cb8-267"><a href="#cb8-267" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb8-268"><a href="#cb8-268" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-269"><a href="#cb8-269" aria-hidden="true" tabindex="-1"></a>fig <span class="op">=</span> go.Figure(go.Bar(x<span class="op">=</span>bench[<span class="st">"Metric"</span>], y<span class="op">=</span>bench[<span class="st">"FSDP"</span>],</span>
+<span id="cb8-270"><a href="#cb8-270" aria-hidden="true" tabindex="-1"></a>                       marker_color<span class="op">=</span><span class="st">"#27AE60"</span>))</span>
+<span id="cb8-271"><a href="#cb8-271" aria-hidden="true" tabindex="-1"></a>fig.update_layout(height<span class="op">=</span><span class="dv">350</span>, margin<span class="op">=</span><span class="bu">dict</span>(t<span class="op">=</span><span class="dv">40</span>, b<span class="op">=</span><span class="dv">40</span>, l<span class="op">=</span><span class="dv">60</span>, r<span class="op">=</span><span class="dv">40</span>),</span>
+<span id="cb8-272"><a href="#cb8-272" aria-hidden="true" tabindex="-1"></a>                  title_text<span class="op">=</span><span class="st">"FSDP run summary"</span>)</span>
+<span id="cb8-273"><a href="#cb8-273" aria-hidden="true" tabindex="-1"></a>fig.show()</span>
+<span id="cb8-274"><a href="#cb8-274" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb8-275"><a href="#cb8-275" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-276"><a href="#cb8-276" aria-hidden="true" tabindex="-1"></a>::: {.callout-warning}</span>
+<span id="cb8-277"><a href="#cb8-277" aria-hidden="true" tabindex="-1"></a><span class="fu">## Honesty note</span></span>
+<span id="cb8-278"><a href="#cb8-278" aria-hidden="true" tabindex="-1"></a>The chart above is intentionally empty — I'd rather ship a template than invented</span>
+<span id="cb8-279"><a href="#cb8-279" aria-hidden="true" tabindex="-1"></a>numbers. Drop in your own <span class="in">`train_samples_per_second`</span> and the profiler's peak-memory</span>
+<span id="cb8-280"><a href="#cb8-280" aria-hidden="true" tabindex="-1"></a>figure once the benchmark run completes.</span>
+<span id="cb8-281"><a href="#cb8-281" aria-hidden="true" tabindex="-1"></a>:::</span>
+<span id="cb8-282"><a href="#cb8-282" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-283"><a href="#cb8-283" aria-hidden="true" tabindex="-1"></a><span class="fu">### Reading the profiler trace</span></span>
+<span id="cb8-284"><a href="#cb8-284" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-285"><a href="#cb8-285" aria-hidden="true" tabindex="-1"></a>Here's what the actual FSDP trace from this run looks like, loaded in Perfetto:</span>
+<span id="cb8-286"><a href="#cb8-286" aria-hidden="true" tabindex="-1"></a> </span>
+<span id="cb8-287"><a href="#cb8-287" aria-hidden="true" tabindex="-1"></a><span class="al">![FSDP training trace: CPU-side autograd on top, GPU CUDA streams below, three profiled steps.](../images/fsdp_trace.png)</span>{#fig-trace fig-alt="PyTorch profiler trace showing a python thread, a pt_autograd backward thread with repeated sawtooth patterns, and several CUDA streams (7, 16, 17, 25) densely filled across ProfilerStep#2, #3 and #4"}</span>
+<span id="cb8-288"><a href="#cb8-288" aria-hidden="true" tabindex="-1"></a> </span>
+<span id="cb8-289"><a href="#cb8-289" aria-hidden="true" tabindex="-1"></a>Reading it top to bottom:</span>
+<span id="cb8-290"><a href="#cb8-290" aria-hidden="true" tabindex="-1"></a> </span>
+<span id="cb8-291"><a href="#cb8-291" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>**`thread 231 (python)`** — the main Python thread dispatching work. The long</span>
+<span id="cb8-292"><a href="#cb8-292" aria-hidden="true" tabindex="-1"></a>  green blocks are the framework driving the step; the early gap at the far left is</span>
+<span id="cb8-293"><a href="#cb8-293" aria-hidden="true" tabindex="-1"></a>  warmup settling before the profiler's <span class="in">`active`</span> window.</span>
+<span id="cb8-294"><a href="#cb8-294" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>**`thread 289 (pt_autograd_0)`** — the autograd (backward) thread. Those repeated</span>
+<span id="cb8-295"><a href="#cb8-295" aria-hidden="true" tabindex="-1"></a>  **sawtooth / "tree" shapes are the per-decoder-layer work** — one repeated unit</span>
+<span id="cb8-296"><a href="#cb8-296" aria-hidden="true" tabindex="-1"></a>  per wrapped <span class="in">`SmolLM3DecoderLayer`</span>. That regular, repeating structure is exactly</span>
+<span id="cb8-297"><a href="#cb8-297" aria-hidden="true" tabindex="-1"></a>  what you want to see: it means auto-wrap sharded at layer granularity as</span>
+<span id="cb8-298"><a href="#cb8-298" aria-hidden="true" tabindex="-1"></a>  configured, so each layer is gathered → computed → freed in a tidy cycle.</span>
+<span id="cb8-299"><a href="#cb8-299" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>**`Thread 0 (main thread)`** — the thin orange tick marks are CUDA kernel</span>
+<span id="cb8-300"><a href="#cb8-300" aria-hidden="true" tabindex="-1"></a>  *launches* from the host. They're evenly spaced, i.e. the CPU is feeding the GPU</span>
+<span id="cb8-301"><a href="#cb8-301" aria-hidden="true" tabindex="-1"></a>  steadily and isn't stalling.</span>
+<span id="cb8-302"><a href="#cb8-302" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>**CUDA stream `7`** — the main compute stream. This is where the actual</span>
+<span id="cb8-303"><a href="#cb8-303" aria-hidden="true" tabindex="-1"></a>  matmuls/attention kernels for the forward and backward pass run.</span>
+<span id="cb8-304"><a href="#cb8-304" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>**CUDA stream `16`** — the NCCL *execution* stream. Slices here are named things</span>
+<span id="cb8-305"><a href="#cb8-305" aria-hidden="true" tabindex="-1"></a>  like <span class="in">`ncclDevKernel_AllGather_RING_LL(...)`</span> with <span class="in">`Category: kernel`</span> — this is the</span>
+<span id="cb8-306"><a href="#cb8-306" aria-hidden="true" tabindex="-1"></a>  literal collective communication kernel moving bytes between GPUs.</span>
+<span id="cb8-307"><a href="#cb8-307" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>**CUDA stream `17`** — the FSDP *annotation* stream. Slices here are named</span>
+<span id="cb8-308"><a href="#cb8-308" aria-hidden="true" tabindex="-1"></a>  <span class="in">`FSDP::all_gather (model.layers.N)`</span> with <span class="in">`Category: gpu_user_annotation`</span> — a</span>
+<span id="cb8-309"><a href="#cb8-309" aria-hidden="true" tabindex="-1"></a>  profiler-inserted label wrapping the all-gather operation for a specific layer,</span>
+<span id="cb8-310"><a href="#cb8-310" aria-hidden="true" tabindex="-1"></a>  useful for seeing *which layer* a given burst of comms belongs to.</span>
+<span id="cb8-311"><a href="#cb8-311" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>**`ProfilerStep#2/#3/#4`** label the three steps captured by the schedule</span>
+<span id="cb8-312"><a href="#cb8-312" aria-hidden="true" tabindex="-1"></a>  (<span class="in">`wait=1, warmup=1, active=3`</span>).</span>
+<span id="cb8-313"><a href="#cb8-313" aria-hidden="true" tabindex="-1"></a>The important read: **streams 7, 16 and 17 are near-continuously filled with</span>
+<span id="cb8-314"><a href="#cb8-314" aria-hidden="true" tabindex="-1"></a>almost no white gaps** — the GPU is busy end to end, and compute overlaps with the</span>
+<span id="cb8-315"><a href="#cb8-315" aria-hidden="true" tabindex="-1"></a>communication streams rather than stalling on it. That's</span>
+<span id="cb8-316"><a href="#cb8-316" aria-hidden="true" tabindex="-1"></a><span class="in">`backward_prefetch="backward_pre"`</span> doing its job.</span>
+<span id="cb8-317"><a href="#cb8-317" aria-hidden="true" tabindex="-1"></a> </span>
+<span id="cb8-318"><a href="#cb8-318" aria-hidden="true" tabindex="-1"></a>::: {.callout-tip}</span>
+<span id="cb8-319"><a href="#cb8-319" aria-hidden="true" tabindex="-1"></a><span class="fu">## Why you'll see two all-gathers overlapping, not one at a time</span></span>
+<span id="cb8-320"><a href="#cb8-320" aria-hidden="true" tabindex="-1"></a>Zoom into stream 17 and you'll often catch two adjacent <span class="in">`FSDP::all_gather`</span> regions</span>
+<span id="cb8-321"><a href="#cb8-321" aria-hidden="true" tabindex="-1"></a>for *different* layers sitting close together — e.g. <span class="in">`model.layers.21`</span> and</span>
+<span id="cb8-322"><a href="#cb8-322" aria-hidden="true" tabindex="-1"></a><span class="in">`model.layers.23`</span> back-to-back rather than cleanly sequential. That's prefetch,</span>
+<span id="cb8-323"><a href="#cb8-323" aria-hidden="true" tabindex="-1"></a>not a bug or duplicate work:</span>
+<span id="cb8-324"><a href="#cb8-324" aria-hidden="true" tabindex="-1"></a> </span>
+<span id="cb8-325"><a href="#cb8-325" aria-hidden="true" tabindex="-1"></a><span class="ss">1. </span>While GPU 0 is computing **layer 21's** forward/backward pass on stream 7, FSDP</span>
+<span id="cb8-326"><a href="#cb8-326" aria-hidden="true" tabindex="-1"></a>   simultaneously kicks off the all-gather for **layer 23's** weights on streams</span>
+<span id="cb8-327"><a href="#cb8-327" aria-hidden="true" tabindex="-1"></a>   16/17, in the background.</span>
+<span id="cb8-328"><a href="#cb8-328" aria-hidden="true" tabindex="-1"></a><span class="ss">2. </span>Because the all-gather runs on a separate stream, its network communication</span>
+<span id="cb8-329"><a href="#cb8-329" aria-hidden="true" tabindex="-1"></a>   overlaps with layer 21's matmuls instead of blocking them.</span>
+<span id="cb8-330"><a href="#cb8-330" aria-hidden="true" tabindex="-1"></a><span class="ss">3. </span>By the time layer 21's compute finishes, layer 23's full weights are already</span>
+<span id="cb8-331"><a href="#cb8-331" aria-hidden="true" tabindex="-1"></a>   sitting there — so compute can move straight into layer 23 with no wait.</span>
+<span id="cb8-332"><a href="#cb8-332" aria-hidden="true" tabindex="-1"></a>Worked example with 2 GPUs and 4 layers, each layer's weights split in half</span>
+<span id="cb8-333"><a href="#cb8-333" aria-hidden="true" tabindex="-1"></a>across the two ranks:</span>
+<span id="cb8-334"><a href="#cb8-334" aria-hidden="true" tabindex="-1"></a> </span>
+<span id="cb8-335"><a href="#cb8-335" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Layer <span class="pp">|</span> GPU 0 holds <span class="pp">|</span> GPU 1 holds <span class="pp">|</span></span>
+<span id="cb8-336"><a href="#cb8-336" aria-hidden="true" tabindex="-1"></a><span class="pp">|-------|-------------|-------------|</span></span>
+<span id="cb8-337"><a href="#cb8-337" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> 1 <span class="pp">|</span> half of Layer 1 <span class="pp">|</span> other half <span class="pp">|</span></span>
+<span id="cb8-338"><a href="#cb8-338" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> 2 <span class="pp">|</span> half of Layer 2 <span class="pp">|</span> other half <span class="pp">|</span></span>
+<span id="cb8-339"><a href="#cb8-339" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> 3 <span class="pp">|</span> half of Layer 3 <span class="pp">|</span> other half <span class="pp">|</span></span>
+<span id="cb8-340"><a href="#cb8-340" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> 4 <span class="pp">|</span> half of Layer 4 <span class="pp">|</span> other half <span class="pp">|</span></span>
+<span id="cb8-341"><a href="#cb8-341" aria-hidden="true" tabindex="-1"></a> </span>
+<span id="cb8-342"><a href="#cb8-342" aria-hidden="true" tabindex="-1"></a>Neither GPU alone has enough of any single layer to compute with — that's the</span>
+<span id="cb8-343"><a href="#cb8-343" aria-hidden="true" tabindex="-1"></a>memory saving. The naive approach (gather → compute → reshard → gather → compute</span>
+<span id="cb8-344"><a href="#cb8-344" aria-hidden="true" tabindex="-1"></a>→ …, one layer at a time, fully serial) would stall compute on every layer's</span>
+<span id="cb8-345"><a href="#cb8-345" aria-hidden="true" tabindex="-1"></a>network round-trip. Prefetching hides that cost: the all-gather for layer *N+1*</span>
+<span id="cb8-346"><a href="#cb8-346" aria-hidden="true" tabindex="-1"></a>is issued while layer *N* is still computing, so by the time layer *N* finishes,</span>
+<span id="cb8-347"><a href="#cb8-347" aria-hidden="true" tabindex="-1"></a>layer *N+1*'s weights are ready. Over a full step you'll also see this happen</span>
+<span id="cb8-348"><a href="#cb8-348" aria-hidden="true" tabindex="-1"></a>twice per layer — once before forward, once before backward — since FSDP</span>
+<span id="cb8-349"><a href="#cb8-349" aria-hidden="true" tabindex="-1"></a>reshards after forward to keep the memory savings, then has to re-gather before</span>
+<span id="cb8-350"><a href="#cb8-350" aria-hidden="true" tabindex="-1"></a>backward needs the full weights again.</span>
+<span id="cb8-351"><a href="#cb8-351" aria-hidden="true" tabindex="-1"></a>:::</span>
+<span id="cb8-352"><a href="#cb8-352" aria-hidden="true" tabindex="-1"></a> </span>
+<span id="cb8-353"><a href="#cb8-353" aria-hidden="true" tabindex="-1"></a>::: {.callout-note}</span>
+<span id="cb8-354"><a href="#cb8-354" aria-hidden="true" tabindex="-1"></a><span class="fu">## What's healthy here</span></span>
+<span id="cb8-355"><a href="#cb8-355" aria-hidden="true" tabindex="-1"></a>The two signals that say this run is *compute-bound, not communication-bound*:</span>
+<span id="cb8-356"><a href="#cb8-356" aria-hidden="true" tabindex="-1"></a>(1) the CUDA streams have very little idle white space, and (2) the per-layer</span>
+<span id="cb8-357"><a href="#cb8-357" aria-hidden="true" tabindex="-1"></a>sawtooth in the autograd thread is regular — no long flat stretches where a rank</span>
+<span id="cb8-358"><a href="#cb8-358" aria-hidden="true" tabindex="-1"></a>is waiting on an all-gather. On 2 GPUs with layer-wrapped FSDP and prefetch on,</span>
+<span id="cb8-359"><a href="#cb8-359" aria-hidden="true" tabindex="-1"></a>that's the outcome you're aiming for.</span>
+<span id="cb8-360"><a href="#cb8-360" aria-hidden="true" tabindex="-1"></a>:::</span>
+<span id="cb8-361"><a href="#cb8-361" aria-hidden="true" tabindex="-1"></a> </span>
+<span id="cb8-362"><a href="#cb8-362" aria-hidden="true" tabindex="-1"></a>::: {.callout-warning}</span>
+<span id="cb8-363"><a href="#cb8-363" aria-hidden="true" tabindex="-1"></a><span class="fu">## Where the bottleneck would show up</span></span>
+<span id="cb8-364"><a href="#cb8-364" aria-hidden="true" tabindex="-1"></a>This zoomed-out view can hide things a kernel-level zoom would reveal. To confirm</span>
+<span id="cb8-365"><a href="#cb8-365" aria-hidden="true" tabindex="-1"></a>communication isn't the limiter, zoom into a single <span class="in">`ProfilerStep`</span> and look for:</span>
+<span id="cb8-366"><a href="#cb8-366" aria-hidden="true" tabindex="-1"></a> </span>
+<span id="cb8-367"><a href="#cb8-367" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>**Gaps on stream 7 (compute)** that line up with active <span class="in">`ncclDevKernel_AllGather`</span></span>
+<span id="cb8-368"><a href="#cb8-368" aria-hidden="true" tabindex="-1"></a>  slices on stream 16 → comms not overlapping; try tuning prefetch or</span>
+<span id="cb8-369"><a href="#cb8-369" aria-hidden="true" tabindex="-1"></a>  <span class="in">`limit_all_gathers`</span>.</span>
+<span id="cb8-370"><a href="#cb8-370" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>**`stream 25`**, which fires only in short bursts at the step boundaries here —</span>
+<span id="cb8-371"><a href="#cb8-371" aria-hidden="true" tabindex="-1"></a>  likely the boundary collective (e.g. gradient reduction / optimizer step). If</span>
+<span id="cb8-372"><a href="#cb8-372" aria-hidden="true" tabindex="-1"></a>  those bursts grow relative to the step, the sync at the boundary is your cost.</span>
+<span id="cb8-373"><a href="#cb8-373" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>The **sparse orange band at the very start** — warmup/setup, correctly excluded</span>
+<span id="cb8-374"><a href="#cb8-374" aria-hidden="true" tabindex="-1"></a>  from the <span class="in">`active`</span> measurement window.</span>
+<span id="cb8-375"><a href="#cb8-375" aria-hidden="true" tabindex="-1"></a>For this run, none of those dominate — the story is a well-overlapped,</span>
+<span id="cb8-376"><a href="#cb8-376" aria-hidden="true" tabindex="-1"></a>compute-bound FSDP step.</span>
+<span id="cb8-377"><a href="#cb8-377" aria-hidden="true" tabindex="-1"></a>:::</span>
+<span id="cb8-378"><a href="#cb8-378" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-379"><a href="#cb8-379" aria-hidden="true" tabindex="-1"></a><span class="fu">## Recommendations</span></span>
+<span id="cb8-380"><a href="#cb8-380" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-383"><a href="#cb8-383" aria-hidden="true" tabindex="-1"></a><span class="in">```{mermaid}</span></span>
+<span id="cb8-384"><a href="#cb8-384" aria-hidden="true" tabindex="-1"></a>%%| <span class="fu">eval</span>: true</span>
+<span id="cb8-385"><a href="#cb8-385" aria-hidden="true" tabindex="-1"></a>%%| fig-cap: <span class="ot">"</span><span class="st">Does FSDP fit?</span><span class="ot">"</span></span>
+<span id="cb8-386"><a href="#cb8-386" aria-hidden="true" tabindex="-1"></a>flowchart TD</span>
+<span id="cb8-387"><a href="#cb8-387" aria-hidden="true" tabindex="-1"></a>    Start[Model + Adam <span class="kw">state</span>&lt;br/&gt;too big <span class="kw">for</span> one GPU?] --&gt;|Yes| Fit[Fits <span class="kw">when</span> sharded&lt;br/&gt;across your GPUs?]</span>
+<span id="cb8-388"><a href="#cb8-388" aria-hidden="true" tabindex="-1"></a>    Fit --&gt;|Yes| FSDP[FSDP full_shard]</span>
+<span id="cb8-389"><a href="#cb8-389" aria-hidden="true" tabindex="-1"></a>    Fit --&gt;|No| Offload[FSDP + CPU param offload&lt;br/&gt;<span class="ot">or</span> a bigger / more GPUs]</span>
+<span id="cb8-390"><a href="#cb8-390" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb8-391"><a href="#cb8-391" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-392"><a href="#cb8-392" aria-hidden="true" tabindex="-1"></a><span class="ss">1. </span>**Reach for FSDP `full_shard`** when the model + optimizer state won't fit as a</span>
+<span id="cb8-393"><a href="#cb8-393" aria-hidden="true" tabindex="-1"></a>   full replica. It divides the static memory by the number of GPUs.</span>
+<span id="cb8-394"><a href="#cb8-394" aria-hidden="true" tabindex="-1"></a><span class="ss">2. </span>**Wrap at the correct decoder-layer class** — the single most common way to</span>
+<span id="cb8-395"><a href="#cb8-395" aria-hidden="true" tabindex="-1"></a>   silently lose the savings.</span>
+<span id="cb8-396"><a href="#cb8-396" aria-hidden="true" tabindex="-1"></a><span class="ss">3. </span>**Turn on `fsdp_offload_params=True`** if sharding alone isn't enough. It trades</span>
+<span id="cb8-397"><a href="#cb8-397" aria-hidden="true" tabindex="-1"></a>   speed for headroom.</span>
+<span id="cb8-398"><a href="#cb8-398" aria-hidden="true" tabindex="-1"></a><span class="ss">4. </span>**Pin `fsdp_version: 1`** until the FSDP2/DTensor + eval interaction is resolved</span>
+<span id="cb8-399"><a href="#cb8-399" aria-hidden="true" tabindex="-1"></a>   in your stack.</span>
+<span id="cb8-400"><a href="#cb8-400" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-401"><a href="#cb8-401" aria-hidden="true" tabindex="-1"></a><span class="fu">## Lessons learned</span></span>
+<span id="cb8-402"><a href="#cb8-402" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-403"><a href="#cb8-403" aria-hidden="true" tabindex="-1"></a>::: {.callout-note}</span>
+<span id="cb8-404"><a href="#cb8-404" aria-hidden="true" tabindex="-1"></a><span class="fu">## Key takeaways</span></span>
+<span id="cb8-405"><a href="#cb8-405" aria-hidden="true" tabindex="-1"></a><span class="ss">1. </span>**Parameter count lies about training memory.** A 3B model needs ~36 GB of</span>
+<span id="cb8-406"><a href="#cb8-406" aria-hidden="true" tabindex="-1"></a>   *static* state under Adam. Plan for weights + grads + 2× fp32 optimizer state,</span>
+<span id="cb8-407"><a href="#cb8-407" aria-hidden="true" tabindex="-1"></a>   not just weights.</span>
+<span id="cb8-408"><a href="#cb8-408" aria-hidden="true" tabindex="-1"></a><span class="ss">2. </span>**FSDP trades communication for memory.** That's the whole deal — it shards the</span>
+<span id="cb8-409"><a href="#cb8-409" aria-hidden="true" tabindex="-1"></a>   state so a model that can't fit as a replica becomes trainable.</span>
+<span id="cb8-410"><a href="#cb8-410" aria-hidden="true" tabindex="-1"></a><span class="ss">3. </span>**Sharding, not batch size, is the memory lever.** Batch size only touches</span>
+<span id="cb8-411"><a href="#cb8-411" aria-hidden="true" tabindex="-1"></a>   activations.</span>
+<span id="cb8-412"><a href="#cb8-412" aria-hidden="true" tabindex="-1"></a><span class="ss">4. </span>**The failures are at the seams.** FSDP × eval, FSDP × disk, <span class="in">`Trainer`</span> ×</span>
+<span id="cb8-413"><a href="#cb8-413" aria-hidden="true" tabindex="-1"></a>   tracker. Read the traceback fully; each of mine had a one-line fix.</span>
+<span id="cb8-414"><a href="#cb8-414" aria-hidden="true" tabindex="-1"></a><span class="ss">5. </span>**A bigger GPU isn't always more memory.** A100-40GB &lt; L40S-48GB. Check the</span>
+<span id="cb8-415"><a href="#cb8-415" aria-hidden="true" tabindex="-1"></a>   actual VRAM, not the model name.</span>
+<span id="cb8-416"><a href="#cb8-416" aria-hidden="true" tabindex="-1"></a>:::</span>
+<span id="cb8-417"><a href="#cb8-417" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-418"><a href="#cb8-418" aria-hidden="true" tabindex="-1"></a><span class="fu">## Appendix: reproduction</span></span>
+<span id="cb8-419"><a href="#cb8-419" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-420"><a href="#cb8-420" aria-hidden="true" tabindex="-1"></a>Code, launch scripts, and configuration:</span>
+<span id="cb8-421"><a href="#cb8-421" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-422"><a href="#cb8-422" aria-hidden="true" tabindex="-1"></a><span class="ot">&lt;https://github.com/vinayhpandya/distributed_machine_learning_practice&gt;</span></span>
+<span id="cb8-423"><a href="#cb8-423" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-424"><a href="#cb8-424" aria-hidden="true" tabindex="-1"></a><span class="in">```bash</span></span>
+<span id="cb8-425"><a href="#cb8-425" aria-hidden="true" tabindex="-1"></a><span class="co"># FSDP fine-tune, detached so it survives a closed terminal</span></span>
+<span id="cb8-426"><a href="#cb8-426" aria-hidden="true" tabindex="-1"></a><span class="va">TRAIN_STRATEGY</span><span class="op">=</span>fsdp <span class="ex">modal</span> run <span class="at">--detach</span> launch_on_modal.py <span class="at">--script</span> <span class="st">"launch_command.sh"</span></span>
+<span id="cb8-427"><a href="#cb8-427" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-428"><a href="#cb8-428" aria-hidden="true" tabindex="-1"></a><span class="co"># Follow logs / check status</span></span>
+<span id="cb8-429"><a href="#cb8-429" aria-hidden="true" tabindex="-1"></a><span class="ex">modal</span> app logs smolm-medical-training</span>
+<span id="cb8-430"><a href="#cb8-430" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb8-431"><a href="#cb8-431" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-432"><a href="#cb8-432" aria-hidden="true" tabindex="-1"></a>---</span>
+<span id="cb8-433"><a href="#cb8-433" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-434"><a href="#cb8-434" aria-hidden="true" tabindex="-1"></a>*Notes from a distributed-training practice project. Corrections welcome.*</span>
+</code></pre></div><button title="Copy to Clipboard" class="code-copy-button" data-in-quarto-modal=""><i class="bi"></i></button></div>
+</div></div></div></div></div>
+</div> <!-- /content -->
+<footer class="footer">
+  <div class="nav-footer">
+    <div class="nav-footer-left">
+      &nbsp;
+    </div>   
+    <div class="nav-footer-center">
+<p>© 2025 Vinay Pandya</p>
+</div>
+    <div class="nav-footer-right">
+      &nbsp;
+    </div>
+  </div>
+</footer>
+
+
+
+
+</body></html>
