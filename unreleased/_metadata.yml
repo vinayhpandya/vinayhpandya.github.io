@@ -1,0 +1,4 @@
+# Everything in unreleased/ is a draft: rendered and reachable by URL,
+# but left out of listings, site search, the sitemap and navigation
+# (see draft-mode in _quarto.yml). To publish a post, move it to posts/.
+draft: true

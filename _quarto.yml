@@ -5,6 +5,9 @@ project:
 website:
   title: "Vinay Pandya"
   site-url: https://vinayhpandya.github.io
+  # Drafts (e.g. unreleased/) are rendered, but not linked from listings,
+  # search, the sitemap or navigation.
+  draft-mode: unlinked
   navbar:
     left:
       - href: index.qmd
