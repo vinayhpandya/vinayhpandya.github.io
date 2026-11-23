@@ -2,6 +2,7 @@
   {
     "listing": "/blog.html",
     "items": [
+      "/posts/scholarsearch_scaling.html",
       "/posts/fsdp_training.html",
       "/posts/rediska.html",
       "/posts/search_results.html",

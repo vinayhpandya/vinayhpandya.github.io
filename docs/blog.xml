@@ -10,7 +10,291 @@
 <atom:link href="https://vinayhpandya.github.io/blog.xml" rel="self" type="application/rss+xml"/>
 <description></description>
 <generator>quarto-1.8.27</generator>
-<lastBuildDate>Sat, 12 Sep 2026 07:00:00 GMT</lastBuildDate>
+<lastBuildDate>Sun, 22 Nov 2026 08:00:00 GMT</lastBuildDate>
+<item>
+  <title>Scaling ScholarSearch: 15K Papers, Seven Retrievers, One Command on AWS</title>
+  <dc:creator>Vinay Pandya</dc:creator>
+  <link>https://vinayhpandya.github.io/posts/scholarsearch_scaling.html</link>
+  <description><![CDATA[ 
+
+
+
+
+
+<section id="introduction" class="level2">
+<h2 class="anchored" data-anchor-id="introduction">Introduction</h2>
+<p>In the <a href="../posts/search_results.html">first ScholarSearch post</a> I compared seven retrieval methods over 194 malware-classification papers and 40 queries. It was a good weekend project, but it had two problems: the corpus was too small for the numbers to mean much, and every result came from a pile of one-off scripts that I couldn’t rerun with confidence.</p>
+<p>This post is about fixing both. The corpus is now <strong>15,000 papers</strong>, the eval set is <strong>100 queries</strong>, and every experiment runs from <strong>one command</strong> that launches a throwaway EC2 instance, writes results to S3 under a run ID, and terminates itself.</p>
+<p>Code: <a href="https://github.com/vinayhpandya/search-algorithms">github.com/vinayhpandya/search-algorithms</a></p>
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>TL;DR
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<ul>
+<li><strong>HNSW costs essentially nothing in relevance.</strong> Swapping exact dense search for HNSW made dense retrieval <strong>25× faster</strong> (13.7 → 0.54 ms) and moved NDCG@10 by −0.003.</li>
+<li><strong>Reranking is the biggest win available.</strong> Reranking hybrid’s top 100 lifted NDCG@10 from 0.695 to <strong>0.855</strong> (cross-encoder) and <strong>0.841</strong> (ColBERT).</li>
+<li><strong>ColBERT is the practical choice.</strong> It reached 98% of the cross-encoder’s NDCG@10 at <strong>111 ms vs 6.4 s</strong> per query on CPU, provided its document embeddings are precomputed.</li>
+<li><strong>That precomputation is the real cost</strong>: 0.74 s per paper on a 2-vCPU box.</li>
+<li><strong>BM25 beats dense SPECTER2 by a wide margin</strong> on this corpus (0.713 vs 0.528), and part of that is probably a data problem, not a model problem.</li>
+<li>Judging 698 new query–paper pairs cost <strong>$0.05</strong>.</li>
+</ul>
+</div>
+</div>
+</section>
+<section id="what-changed-since-the-first-post" class="level2">
+<h2 class="anchored" data-anchor-id="what-changed-since-the-first-post">What changed since the first post</h2>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 33%">
+<col style="width: 33%">
+<col style="width: 33%">
+</colgroup>
+<thead>
+<tr class="header">
+<th></th>
+<th>First post</th>
+<th>This post</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Corpus</td>
+<td>194 arXiv papers</td>
+<td>15,000 OpenAlex papers (<code>"malware detection"</code>), frozen</td>
+</tr>
+<tr class="even">
+<td>Queries</td>
+<td>40</td>
+<td>100</td>
+</tr>
+<tr class="odd">
+<td>Relevance labels</td>
+<td>researcher + critic LLM, human spot-check</td>
+<td>gpt-4o-mini, graded 0/1/2, pooled: 2,785 labels</td>
+</tr>
+<tr class="even">
+<td>Dense model</td>
+<td>SPECTER2</td>
+<td>SPECTER2 (proximity adapter for papers, ad-hoc query adapter for queries)</td>
+</tr>
+<tr class="odd">
+<td>Where it runs</td>
+<td>my laptop, many scripts</td>
+<td>one runner, one EC2 instance, results in S3</td>
+</tr>
+</tbody>
+</table>
+<p>The labels are <strong>pooled</strong>: only papers that some method ranks in its top 10 for a query get judged. That keeps costs tiny, but it has a consequence I’ll come back to in Why the baseline numbers moved.</p>
+</section>
+<section id="the-pipeline" class="level2">
+<h2 class="anchored" data-anchor-id="the-pipeline">The pipeline</h2>
+<p>I spent a while going back and forth on how much infrastructure this needed (Step Functions? AWS Batch? a scheduler?). What I needed was much simpler: <em>one command that reruns everything and leaves a traceable record</em>. So the design is deliberately boring.</p>
+<div class="cell" data-layout-align="default">
+<div class="cell-output-display">
+<div>
+<p></p><figure class="figure"><p></p>
+<div>
+<pre class="mermaid mermaid-js">flowchart TB
+    L["laptop&lt;br/&gt;package_source.sh + terraform apply"] --&gt; EC2["EC2 worker&lt;br/&gt;(no inbound ports, one S3 prefix)"]
+    SSM[("SSM SecureString&lt;br/&gt;judge API key")] -.-&gt; EC2
+    EC2 --&gt; RUN["ann → retrieval → judge → report"]
+    RUN --&gt; S3[("S3: runs/&amp;lt;run_id&amp;gt;/*.json&lt;br/&gt;+ worker log")]
+    S3 --&gt; T["instance terminates itself"]
+</pre>
+</div>
+<p></p><figcaption> One experiment run, start to finish</figcaption> </figure><p></p>
+</div>
+</div>
+</div>
+<p>A few choices that turned out to matter:</p>
+<ul>
+<li><strong>Plain EC2, not Batch or Step Functions.</strong> The existing Terraform already had a locked-down worker pattern: no inbound ports, an IAM role that can only touch one S3 prefix, SSM for shell access, and a watchdog timer. A new run is a new JSON config, not new infrastructure. The instance <em>terminates</em> rather than stops when the job ends, so a forgotten instance can’t keep billing.</li>
+<li><strong>Every run gets a folder.</strong> <code>runs/&lt;timestamp&gt;-&lt;config&gt;-&lt;hash&gt;/</code> holds <code>retrieval.json</code>, <code>judge.json</code>, <code>report.json</code>, and a <code>run_manifest.json</code> with the exact config, git commit, per-stage status and timing. Any number in this post traces back to a run.</li>
+<li><strong>The report refuses to guess.</strong> If a method surfaces a paper nobody has judged, the report stage outputs <em>how many pairs are missing</em> instead of an NDCG score. Treating unjudged papers as irrelevant quietly penalizes exactly the methods that find new things.</li>
+<li><strong>Judging is capped and incremental.</strong> The judge stage reuses every existing label, judges only the missing pairs, and keeps a cumulative spend ledger in S3. It stops before a hard cap ($25) would be exceeded. This run used $0.05 of it.</li>
+<li><strong>The API key never touches disk.</strong> It lives in SSM Parameter Store as a SecureString; the worker role can read that one parameter and nothing else.</li>
+</ul>
+</section>
+<section id="results" class="level2">
+<h2 class="anchored" data-anchor-id="results">Results</h2>
+<p>All seven methods, same 100 queries, same labels. Latency is per-query p50 on an <code>m7i-flex.large</code> (2 vCPUs, CPU only).</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 20%">
+<col style="width: 26%">
+<col style="width: 26%">
+<col style="width: 26%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>Method</th>
+<th style="text-align: right;">NDCG@10</th>
+<th style="text-align: right;">MRR@10 (label = 2)</th>
+<th style="text-align: right;">p50 latency</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>BM25</td>
+<td style="text-align: right;">0.713</td>
+<td style="text-align: right;">0.713</td>
+<td style="text-align: right;">32 ms</td>
+</tr>
+<tr class="even">
+<td>Dense (exact SPECTER2)</td>
+<td style="text-align: right;">0.528</td>
+<td style="text-align: right;">0.592</td>
+<td style="text-align: right;">13.7 ms</td>
+</tr>
+<tr class="odd">
+<td>Dense (HNSW)</td>
+<td style="text-align: right;">0.524</td>
+<td style="text-align: right;">0.587</td>
+<td style="text-align: right;"><strong>0.54 ms</strong></td>
+</tr>
+<tr class="even">
+<td>Hybrid (RRF: BM25 + dense)</td>
+<td style="text-align: right;">0.695</td>
+<td style="text-align: right;">0.746</td>
+<td style="text-align: right;">46 ms</td>
+</tr>
+<tr class="odd">
+<td>Hybrid (RRF: BM25 + HNSW)</td>
+<td style="text-align: right;">0.696</td>
+<td style="text-align: right;">0.752</td>
+<td style="text-align: right;">33 ms</td>
+</tr>
+<tr class="even">
+<td>Hybrid → cross-encoder rerank (top 100)</td>
+<td style="text-align: right;"><strong>0.855</strong></td>
+<td style="text-align: right;"><strong>0.885</strong></td>
+<td style="text-align: right;">6,389 ms</td>
+</tr>
+<tr class="odd">
+<td>Hybrid → ColBERT rerank (top 100)</td>
+<td style="text-align: right;">0.841</td>
+<td style="text-align: right;">0.847</td>
+<td style="text-align: right;">111 ms</td>
+</tr>
+</tbody>
+</table>
+<div id="fig-tradeoff" class="quarto-float quarto-figure quarto-figure-center anchored" alt="Scatter plot of NDCG@10 against log-scale p50 latency. First-stage methods cluster between 0.52 and 0.71 NDCG; dense HNSW is at 0.5 ms. ColBERT rerank is at 0.841 NDCG and 111 ms; cross-encoder rerank at 0.855 NDCG and 6.4 seconds.">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-tradeoff-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="https://vinayhpandya.github.io/images/scholarsearch_quality_latency.png" class="img-fluid figure-img" alt="Scatter plot of NDCG@10 against log-scale p50 latency. First-stage methods cluster between 0.52 and 0.71 NDCG; dense HNSW is at 0.5 ms. ColBERT rerank is at 0.841 NDCG and 111 ms; cross-encoder rerank at 0.855 NDCG and 6.4 seconds.">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-tradeoff-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;1: Quality vs.&nbsp;latency for all seven methods. ColBERT sits near the cross-encoder on quality, two orders of magnitude to the left.
+</figcaption>
+</figure>
+</div>
+<section id="hnsw-is-effectively-free" class="level3">
+<h3 class="anchored" data-anchor-id="hnsw-is-effectively-free">HNSW is effectively free</h3>
+<p>Exact dense search scores all 15K vectors per query; HNSW (<code>M=16</code>, <code>efSearch=64</code>) walks a graph instead. That made dense retrieval 25× faster with an NDCG@10 change of −0.003, and the HNSW hybrid is marginally <em>better</em> than the exact one (0.696 vs 0.695), which is noise.</p>
+<p>The interesting part is how this squares with the ANN benchmark. In an earlier benchmark on the same vectors, HNSW at this setting returned 96.4% of the exact top-10 neighbours (Recall@10). Missing 3.6% of the <em>nearest vectors</em> translated into almost no loss of <em>relevant papers</em>, because the neighbours HNSW misses are the borderline ones near the cut-off, which are rarely the papers a judge rates highest. ANN recall is a proxy; end-to-end relevance is what users feel, and here the proxy is pessimistic.</p>
+<p>At 15K vectors, though, exact search is already fast. The latency win matters at the next scale step, not this one. Hybrid latency is now dominated by BM25 (32 of 33 ms), which is a pure-Python implementation; moving it to a real inverted index is the obvious next speed-up.</p>
+</section>
+<section id="rerankers-the-biggest-jump-in-the-whole-project" class="level3">
+<h3 class="anchored" data-anchor-id="rerankers-the-biggest-jump-in-the-whole-project">Rerankers: the biggest jump in the whole project</h3>
+<p>Both rerankers take hybrid’s top 100 and reorder them. Both add about 0.15 NDCG@10 on top of the best first-stage method, by far the largest single improvement anywhere in this project.</p>
+<p>The difference between them is architecture, and it shows up entirely in latency:</p>
+<ul>
+<li>A <strong>cross-encoder</strong> (<code>ms-marco-MiniLM-L-6-v2</code>) reads query and paper <em>together</em> through every transformer layer. Nothing can be precomputed, so every query pays for 100 full forward passes: <strong>6.4 seconds</strong> per query on two CPU cores.</li>
+<li><strong>ColBERT</strong> (<code>colbertv2.0</code>) encodes papers and queries <em>separately</em> into one vector per token, then scores with MaxSim: for each query token, take its best-matching paper token, and sum. Paper token embeddings can be computed ahead of time, so at query time you encode one short query and do some matrix multiplies: <strong>111 ms</strong>.</li>
+</ul>
+<p>ColBERT got <strong>98% of the cross-encoder’s NDCG@10 at 1/58th of the latency.</strong> On MRR@10 (label = 2) the gap is a bit larger (0.847 vs 0.885): the cross-encoder is better at putting the single best paper first. With 100 queries and no significance test yet, I wouldn’t read much into a 0.014 NDCG gap; I would read a lot into a 58× latency gap.</p>
+<p>This is a different result from the first post, where late interaction trailed the cross-encoder clearly. The setups differ: there ColBERT did <em>full retrieval</em> from a Qdrant multivector index over 194 papers; here it reranks a strong hybrid candidate set over 15K.</p>
+</section>
+<section id="colberts-hidden-bill" class="level3">
+<h3 class="anchored" data-anchor-id="colberts-hidden-bill">ColBERT’s hidden bill</h3>
+<p>The 111 ms figure assumes paper embeddings already exist. The runner encodes each paper once, caches it, and keeps that work outside the timed region, the way a stored index would behave. That one-off work was not small:</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 50%">
+<col style="width: 50%">
+</colgroup>
+<tbody>
+<tr class="odd">
+<td>Papers ColBERT had to encode</td>
+<td>5,186 (unique papers across 100 queries’ top-100 pools)</td>
+</tr>
+<tr class="even">
+<td>Time on 2 vCPUs</td>
+<td>3,827 s (64 minutes)</td>
+</tr>
+<tr class="odd">
+<td>Per paper</td>
+<td>0.74 s</td>
+</tr>
+<tr class="even">
+<td>Extrapolated: all 15K papers</td>
+<td>about 3 hours</td>
+</tr>
+<tr class="odd">
+<td>Extrapolated: 100K papers</td>
+<td>about 20 hours</td>
+</tr>
+</tbody>
+</table>
+<p>That encoding was most of the run’s 1.5 hours. The cross-encoder has no offline cost but pays at every query; ColBERT pays once up front and then is cheap forever. For a corpus that changes slowly, ColBERT’s trade is the better one, but the index build needs a GPU, not two CPU cores.</p>
+</section>
+<section id="bm25-vs.-dense-probably-partly-a-data-problem" class="level3">
+<h3 class="anchored" data-anchor-id="bm25-vs.-dense-probably-partly-a-data-problem">BM25 vs.&nbsp;dense: probably partly a data problem</h3>
+<p>The weakest result is dense SPECTER2, 0.19 NDCG@10 below BM25. In the first post they were nearly tied. When I dug into the earlier 15K retrieval results, I found that <strong>38% of dense’s top-10 hits had an empty abstract</strong>, versus 17% for BM25. The judge sees only title and abstract, and its rubric rates a paper it can’t assess as not relevant. Papers with only a title still get an embedding, and a plausible explanation is that short title-only embeddings sit close to many queries, so dense keeps retrieving papers the judge can’t credit.</p>
+<p>So some of dense’s deficit is the corpus, not the model. That’s the first thing to fix in the next corpus: filter to papers that have abstracts, then see how much of the gap closes.</p>
+</section>
+<section id="hybrid-helps-the-top-result-not-the-whole-list" class="level3">
+<h3 class="anchored" data-anchor-id="hybrid-helps-the-top-result-not-the-whole-list">Hybrid helps the top result, not the whole list</h3>
+<p>Hybrid is slightly <em>below</em> BM25 on NDCG@10 (0.695 vs 0.713) but <em>above</em> it on MRR@10 (label = 2) (0.746 vs 0.713). With dense this much weaker, fusing it in drags some weaker papers into the top 10, but the papers both methods agree on tend to be the best ones, so the first highly relevant result moves up. Either way, hybrid’s real value here is as a candidate generator for the rerankers.</p>
+</section>
+</section>
+<section id="sec-pooling" class="level2">
+<h2 class="anchored" data-anchor-id="sec-pooling">Why the baseline numbers moved</h2>
+<p>If you compare this run with my earlier 15K evaluation, BM25 drops from 0.754 to 0.713 and hybrid from 0.731 to 0.695, with the same code, corpus and queries.</p>
+<p>That’s pooling at work, not a regression. NDCG divides by the best ranking achievable from the <em>judged</em> papers for each query. The rerankers surfaced 698 query–paper pairs nobody had judged before, many of them relevant, so the ideal ranking got better and every method that didn’t find those papers now scores lower against it. The <em>ordering</em> of the old methods is unchanged. It’s also a good argument for the “refuse to score with unjudged pairs” rule: had those 698 pairs been treated as irrelevant, the rerankers would have been penalized for finding good papers.</p>
+</section>
+<section id="caveats" class="level2">
+<h2 class="anchored" data-anchor-id="caveats">Caveats</h2>
+<ul>
+<li><strong>The judge is an LLM.</strong> gpt-4o-mini with a fixed 0/1/2 rubric over title and abstract. Unlike the first post, this round had no human spot-check of the labels yet.</li>
+<li><strong>100 queries, one run, no confidence intervals.</strong> Large gaps (rerankers vs.&nbsp;everything, BM25 vs.&nbsp;dense) are safe; small ones (cross-encoder vs.&nbsp;ColBERT on NDCG) are not.</li>
+<li><strong>Empty abstracts</strong> affect every method, dense the most.</li>
+<li><strong>CPU-only latency on a small instance.</strong> The cross-encoder would be far faster on a GPU, and BM25 is pure Python. Dense latencies exclude query encoding (query vectors are precomputed); reranker latencies include it.</li>
+<li><strong>Rerankers only reorder what hybrid found.</strong> They can’t recover a relevant paper outside hybrid’s top 100.</li>
+</ul>
+</section>
+<section id="what-it-cost" class="level2">
+<h2 class="anchored" data-anchor-id="what-it-cost">What it cost</h2>
+<p>The whole run (installing PyTorch, 100 queries through seven methods, encoding 5,186 papers with ColBERT, and judging 698 new pairs) took about 1.5 hours on a single small CPU instance. The LLM judging cost <strong>$0.053</strong>. The instance cost was well under a dollar, and it terminated itself when done.</p>
+</section>
+<section id="whats-next" class="level2">
+<h2 class="anchored" data-anchor-id="whats-next">What’s next</h2>
+<ol type="1">
+<li><strong>Scale to 100K papers with distractors.</strong> Keep the 15K security papers and add about 85K papers from other computer-science fields as distractors. They share vocabulary (“detection”, “adversarial”, “graph neural network”) without being relevant, which makes the benchmark harder and more realistic, and is where HNSW and IVF-PQ should actually earn their keep. Filter out papers without abstracts this time.</li>
+<li><strong>Store ColBERT token embeddings</strong> (≈0.8 GB at 15K, ≈5 GB at 100K in fp16), built on a GPU, then run <strong>full ColBERT retrieval in Qdrant</strong> instead of reranking only.</li>
+<li><strong>A cheaper judge.</strong> The 2,785 existing labels are a ready-made answer key for testing a fast classification-style model as a relevance judge: measure agreement first, and adopt it only if method rankings don’t change.</li>
+<li><strong>Confidence intervals</strong> via paired bootstrap over queries, so the close calls get an honest error bar.</li>
+</ol>
+
+
+</section>
+
+ ]]></description>
+  <category>search</category>
+  <category>evaluation</category>
+  <category>ColBERT</category>
+  <category>HNSW</category>
+  <category>cross-encoder</category>
+  <category>AWS</category>
+  <guid>https://vinayhpandya.github.io/posts/scholarsearch_scaling.html</guid>
+  <pubDate>Sun, 22 Nov 2026 08:00:00 GMT</pubDate>
+</item>
 <item>
   <title>Fitting a 3B Model on Two GPUs with FSDP: A Practical Walkthrough</title>
   <dc:creator>Vinay Pandya</dc:creator>
