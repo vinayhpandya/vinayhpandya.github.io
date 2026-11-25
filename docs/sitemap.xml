@@ -2,7 +2,7 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
     <loc>https://vinayhpandya.github.io/blog.html</loc>
-    <lastmod>2026-11-23T04:12:09.409Z</lastmod>
+    <lastmod>2026-11-25T05:57:08.243Z</lastmod>
   </url>
   <url>
     <loc>https://vinayhpandya.github.io/unreleased/Learning_about_gpu.html</loc>
@@ -47,5 +47,9 @@
   <url>
     <loc>https://vinayhpandya.github.io/posts/scholarsearch_scaling.html</loc>
     <lastmod>2026-11-23T04:15:15.268Z</lastmod>
+  </url>
+  <url>
+    <loc>https://vinayhpandya.github.io/posts/fused-message-passing.html</loc>
+    <lastmod>2026-11-25T05:59:30.375Z</lastmod>
   </url>
 </urlset>
