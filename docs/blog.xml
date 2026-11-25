@@ -107,7 +107,7 @@ font-style: inherit;">=</span> scatter_add(msgs, dst) <span class="co" style="co
 background-color: null;
 font-style: inherit;"># scatter: [N, D]</span></span></code></pre></div></div>
 <p>It’s easy to read, but the middle array has one row for every <em>edge</em>, not every node. A graph with 1M edges and 64 features makes a 256 MB temporary, and autograd keeps a few more of those around for the backward pass. All of it is written to memory and then read back once.</p>
-<p>That was the motivation for <a href="https://github.com/mlx-graphs/mlx-graphs/issues/26">mlx-graphs issue #26</a>. The three steps together are just a sparse matrix times a dense matrix, <code>out = A @ X</code>, where <code>A</code> is the adjacency matrix. A dedicated kernel can read each neighbour’s row and add it straight into the output, so the <code>[E, D]</code> array never exists.</p>
+<p>There’s a better way. The three steps together are just a sparse matrix times a dense matrix, <code>out = A @ X</code>, where <code>A</code> is the adjacency matrix. A dedicated kernel can read each neighbour’s row and add it straight into the output, so the <code>[E, D]</code> array never exists.</p>
 <div class="fmp">
 <svg class="wide" viewbox="0 0 680 230" aria-label="Gather-scatter versus fused SpMM data flow">
   <defs><marker id="fmp-arr" viewbox="0 0 10 10" refx="9" refy="5" markerwidth="7" markerheight="7" orient="auto"><path d="M0 0 L10 5 L0 10z" class="d-ink3"></path></marker></defs>
@@ -132,7 +132,7 @@ font-style: inherit;"># scatter: [N, D]</span></span></code></pre></div></div>
 </section>
 <section id="two-ways-to-store-a-graph-coo-and-csr" class="level2" data-number="2">
 <h2 data-number="2" class="anchored" data-anchor-id="two-ways-to-store-a-graph-coo-and-csr"><span class="header-section-number">2</span> Two ways to store a graph: COO and CSR</h2>
-<p>The issue mentioned a CUDA example (PyG’s <code>torch_sparse</code>) and the COO format. These are just two ways to write down the same edges.</p>
+<p>A common reference point is PyG’s CUDA implementation (<code>torch_sparse</code>), which works with the COO format. COO and CSR are just two ways to write down the same edges.</p>
 <p><strong>COO</strong> (coordinate) is two parallel lists, <code>row</code> and <code>col</code>, one entry per edge. It’s what <code>edge_index</code> already is. <strong>CSR</strong> (compressed sparse row) sorts edges by destination and replaces the <code>row</code> list with a short <code>rowptr</code> array: node <code>i</code>’s neighbours live at <code>col[rowptr[i] : rowptr[i+1]]</code>.</p>
 <div class="fmp">
 <svg class="wide" viewbox="0 0 680 250" aria-label="Small graph in COO and CSR form">
@@ -380,7 +380,7 @@ font-style: inherit;">1</span>).astype(mx.float32)</span></code></pre></div></di
 <li>Weighted degrees (a sum of edge weights) still use float atomics, since the weights aren’t whole numbers.</li>
 </ul>
 <hr>
-<p><em>Numbers come from <code>benchmarks/spmm/bench_fused_mp.py</code> in mlx-graphs, run with MLX 0.32.4 on an Apple M4 Pro and an Apple M1 (8 GB). Kernels live in <code>mlx_cluster/sparse/</code>. Related issue: <a href="https://github.com/mlx-graphs/mlx-graphs/issues/26">mlx-graphs #26</a>.</em></p>
+<p><em>Numbers come from <code>benchmarks/spmm/bench_fused_mp.py</code> in mlx-graphs, run with MLX 0.32.4 on an Apple M4 Pro and an Apple M1 (8 GB). Kernels live in <code>mlx_cluster/sparse/</code>. Documentation: <a href="https://mlx-graphs.github.io/mlx-graphs/api/nn/fused_message_passing/">fused message passing in mlx-graphs</a>.</em></p>
 <div class="fmp"><div class="fmp-tip" id="fmp-tip"></div></div>
 <script>
 (function(){
