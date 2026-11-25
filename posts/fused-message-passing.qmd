@@ -3,7 +3,7 @@ title: "Fused Message Passing on Apple Silicon"
 subtitle: "Replacing gather–multiply–scatter with sparse matrix kernels in Metal, why CSR wins on power-law graphs, and what an 8 GB M1 taught us about atomics"
 author:
   - "Vinay Pandya"
-date: "2026-11-13"
+date: "2026-11-24"
 categories: [mlx, gnn, metal, apple-silicon, sparse, benchmarking]
 toc: true
 toc-depth: 3

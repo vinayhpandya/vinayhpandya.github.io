@@ -2,8 +2,8 @@
   {
     "listing": "/blog.html",
     "items": [
-      "/posts/scholarsearch_scaling.html",
       "/posts/fused-message-passing.html",
+      "/posts/scholarsearch_scaling.html",
       "/posts/fsdp_training.html",
       "/posts/rediska.html",
       "/posts/search_results.html",
